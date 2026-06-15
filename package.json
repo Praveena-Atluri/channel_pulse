@@ -10,9 +10,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "db:schema:turso": "node --env-file=.env.local scripts/apply-turso-schema.mjs",
+    "youtube:backfill": "node --env-file=.env.local scripts/backfill-youtube-analytics.cjs",
     "test": "node --test --experimental-strip-types tests/*.test.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "@supabase/supabase-js": "2.49.8",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

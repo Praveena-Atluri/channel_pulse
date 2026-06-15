@@ -231,8 +231,9 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                 <MetricCard
                   title="Watch Time"
                   value={`${formatCompactNumber(dashboard.currentTotals.estimatedMinutesWatched / 60)} hrs`}
-                  detail="Estimated hours watched"
+                  detail={`${formatSignedPercent(dashboard.growth.watchTime)} vs ${formatMonthLabel(dashboard.previousMonth)}`}
                   icon={Clock3}
+                  trend={dashboard.growth.watchTime}
                 />
                 <MetricCard
                   title="Subscribers"

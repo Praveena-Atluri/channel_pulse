@@ -1,7 +1,8 @@
-import { Activity, LockKeyhole, RadioTower } from "lucide-react";
+import { Activity, LockKeyhole } from "lucide-react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
+import { AppLogo } from "@/components/app-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -39,9 +40,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl flex-col">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-primary/10 p-3 text-primary">
-              <RadioTower className="size-6" />
-            </div>
+            <AppLogo />
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-black">Channel Pulse</h1>

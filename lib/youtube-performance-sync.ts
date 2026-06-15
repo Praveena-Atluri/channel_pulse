@@ -88,7 +88,7 @@ type SyncInput = {
   channelId?: string;
   startDate: string;
   endDate: string;
-  syncType?: "daily" | "manual";
+  syncType?: "daily" | "manual" | "backfill";
 };
 
 type DailyMetricAccumulator = Partial<MetricTotals> & {

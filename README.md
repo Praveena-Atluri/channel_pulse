@@ -5,7 +5,7 @@ Channel Pulse is a standalone Next.js dashboard for YouTube CMS performance. It 
 ## Stack
 
 - Next.js 15 App Router
-- Supabase Postgres
+- Turso/libSQL storage, with Supabase fallback during migration
 - YouTube Analytics and Data APIs
 - Shadcn-style UI components
 - Node test runner for utility coverage
@@ -26,8 +26,8 @@ cp .env.example .env.local
 
 3. Fill in the required values:
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `YOUTUBE_OAUTH_REFRESH_TOKEN`
@@ -35,10 +35,10 @@ cp .env.example .env.local
 - `DASHBOARD_BASIC_PASSWORD`
 - `CHANNEL_PULSE_SESSION_SECRET`
 
-4. Apply the dashboard schema in Supabase:
+4. Apply the dashboard schema in Turso:
 
 ```bash
-supabase db push
+npm run db:schema:turso
 ```
 
 5. Start the app:
@@ -63,9 +63,41 @@ curl -X POST http://localhost:3000/api/youtube/sync \
 
 Revenue values are YouTube API-reported estimates. `creatorContentType` is used for Shorts and long-form splits where the Analytics API allows it; otherwise Channel Pulse falls back to video duration.
 
-## Supabase
+To backfill all focused CMS channels from YouTube into the database, run:
 
-The schema is in `supabase/migrations/youtube_performance_schema.sql`. It creates the private analytics tables used by the dashboards:
+```bash
+npm run youtube:backfill
+```
+
+By default this force-syncs the last six completed calendar months. To run the previous six-month block after that:
+
+```bash
+npm run youtube:backfill -- --offset-months=6
+```
+
+Useful options:
+
+- `--dry-run` lists the channels and date range without syncing.
+- `--skip-complete` skips channels whose daily metrics are already complete.
+- `--channel=UC...` limits the run to one channel; repeat it or comma-separate IDs for multiple channels.
+- `--start=YYYY-MM-DD --end=YYYY-MM-DD` syncs a custom range.
+- `--concurrency=2` controls how many channels sync at once.
+
+## Database
+
+Channel Pulse uses standard SQL tables for dashboard data. For Turso/libSQL, run:
+
+- `database/turso-channel-pulse-schema.sql`
+
+The old Supabase schema remains in `supabase/migrations/youtube_performance_schema.sql` for reference and fallback while migrating.
+
+To copy only the schema into Turso, run:
+
+```bash
+npm run db:schema:turso
+```
+
+The schema creates the private analytics tables used by the dashboards:
 
 - `youtube_managed_channels`
 - `youtube_video_catalog`

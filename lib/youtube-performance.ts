@@ -69,6 +69,7 @@ export type YoutubePerformanceDashboardData = {
   previousChannelSubscriberTotals: MetricTotals;
   growth: {
     views: number;
+    watchTime: number;
     revenue: number;
     netSubscribers: number;
   };
@@ -313,6 +314,10 @@ export async function getYoutubePerformanceDashboard(
         previousChannelSubscriberTotals: channelPreviousTotals,
         growth: {
           views: safePercentChange(channelCurrentTotals.views, channelPreviousTotals.views),
+          watchTime: safePercentChange(
+            channelCurrentTotals.estimatedMinutesWatched,
+            channelPreviousTotals.estimatedMinutesWatched
+          ),
           revenue: safePercentChange(channelCurrentTotals.estimatedRevenue, channelPreviousTotals.estimatedRevenue),
           netSubscribers: safePercentChange(
             calculateNetSubscribers(channelCurrentTotals),
@@ -389,6 +394,10 @@ export async function getYoutubePerformanceDashboard(
       previousChannelSubscriberTotals: channelPreviousTotals,
       growth: {
         views: safePercentChange(scopedCurrentTotals.views, scopedPreviousTotals.views),
+        watchTime: safePercentChange(
+          scopedCurrentTotals.estimatedMinutesWatched,
+          scopedPreviousTotals.estimatedMinutesWatched
+        ),
         revenue: safePercentChange(scopedCurrentTotals.estimatedRevenue, scopedPreviousTotals.estimatedRevenue),
         netSubscribers: safePercentChange(
           calculateNetSubscribers(channelCurrentTotals),
@@ -1211,7 +1220,7 @@ function emptyDashboard(filters: YoutubePerformanceFilters): YoutubePerformanceD
     previousTotals: createEmptyTotals(),
     channelSubscriberTotals: createEmptyTotals(),
     previousChannelSubscriberTotals: createEmptyTotals(),
-    growth: { views: 0, revenue: 0, netSubscribers: 0 },
+    growth: { views: 0, watchTime: 0, revenue: 0, netSubscribers: 0 },
     longShortSplit: [],
     countryRevenueBreakdown: [],
     cohortSummary: { old: createEmptyTotals(), recent: createEmptyTotals() },

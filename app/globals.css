@@ -25,18 +25,18 @@
   .dark {
     --background: 224 70% 7%;
     --foreground: 213 55% 94%;
-    --card: 224 55% 11%;
+    --card: 225 46% 13%;
     --card-foreground: 213 55% 94%;
     --primary: 213 94% 68%;
     --primary-foreground: 224 70% 8%;
-    --secondary: 223 45% 18%;
+    --secondary: 224 38% 20%;
     --secondary-foreground: 213 55% 94%;
-    --muted: 223 38% 16%;
+    --muted: 224 34% 17%;
     --muted-foreground: 215 24% 68%;
-    --accent: 197 62% 24%;
+    --accent: 205 48% 25%;
     --accent-foreground: 190 80% 88%;
-    --border: 223 34% 24%;
-    --input: 223 34% 24%;
+    --border: 222 28% 27%;
+    --input: 222 28% 27%;
     --ring: 213 94% 68%;
   }
 
@@ -57,6 +57,19 @@
       radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 24%),
       radial-gradient(circle at top right, rgba(34, 211, 238, 0.08), transparent 20%),
       linear-gradient(180deg, rgba(8, 17, 42, 0.97), rgba(5, 12, 31, 0.9));
+  }
+
+  .dark .youtube-report-page .bg-card,
+  .dark .youtube-report-page .bg-card\/95 {
+    background-color: hsl(225 46% 13% / 0.98);
+  }
+
+  .dark .youtube-report-page .bg-background\/70 {
+    background-color: hsl(224 58% 9% / 0.78);
+  }
+
+  .dark .youtube-report-page .shadow-sm {
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.2);
   }
 }
 
