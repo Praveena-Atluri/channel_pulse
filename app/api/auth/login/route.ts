@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
@@ -8,6 +8,7 @@ import {
   isAuthConfigured,
   sanitizeNextPath
 } from "@/lib/auth";
+import { runLoginYoutubeSync } from "@/lib/login-youtube-sync";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -26,6 +27,9 @@ export async function POST(request: Request) {
 
   const response = NextResponse.redirect(new URL(nextPath, request.url), { status: 303 });
   response.cookies.set(CHANNEL_PULSE_SESSION_COOKIE, await createSessionToken(account.username), getAuthCookieOptions());
+  after(async () => {
+    await runLoginYoutubeSync(account);
+  });
 
   return response;
 }
