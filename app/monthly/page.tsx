@@ -215,11 +215,11 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
             />
 
             <FilterSelect label="Format" name="contentType" value={dashboard.filters.contentType}>
-              <option value="all">All formats</option>
-              <option value="short">Short form</option>
-              <option value="long">Long form</option>
-              <option value="live">Live</option>
-              <option value="unknown">Unknown</option>
+              {getContentTypeOptions(dashboard.availableContentTypes, dashboard.filters.contentType).map((option) => (
+                <option key={option} value={option}>
+                  {contentTypeLabel(option)}
+                </option>
+              ))}
             </FilterSelect>
           </YoutubeAutoSubmitForm>
         </section>
@@ -757,6 +757,18 @@ function contentTypeLabel(value: ContentTypeFilter) {
   if (value === "live") return "Live";
   if (value === "unknown") return "Unknown";
   return "All formats";
+}
+
+function getContentTypeOptions(availableContentTypes: ReadonlyArray<ContentTypeFilter>, selected: ContentTypeFilter) {
+  const options: ContentTypeFilter[] = ["all", "short", "long"];
+
+  for (const optionalType of ["live", "unknown"] as ContentTypeFilter[]) {
+    if (availableContentTypes.includes(optionalType) || selected === optionalType) {
+      options.push(optionalType);
+    }
+  }
+
+  return options;
 }
 
 function slugify(value: string) {

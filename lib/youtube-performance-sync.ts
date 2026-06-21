@@ -41,6 +41,8 @@ const REVENUE_METRIC_SETS = [
   ["estimatedRevenue"]
 ];
 
+const CTR_METRIC_SETS = [["impressionsClickThroughRate"], ["impressionClickThroughRate"]];
+
 const CONTENT_TYPE_METRIC_SETS = [
   ["views", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks"],
   ["views", "estimatedMinutesWatched", "estimatedRevenue"],
@@ -97,6 +99,7 @@ type DailyMetricAccumulator = Partial<MetricTotals> & {
   videoId?: string;
   contentType?: VideoContentType;
   countryCode?: string;
+  impressionsClickThroughRate?: number;
 };
 
 type SyncRunRecord = {
@@ -181,8 +184,6 @@ export async function syncYoutubeCmsAnalytics(input: SyncInput) {
         `YouTube did not return channel metrics for ${input.channelId} from ${input.startDate} to ${input.endDate}.${detail}`
       );
     }
-    channelMetrics = fillMissingChannelMetricDays(channelMetrics, channelIds, input.startDate, input.endDate);
-
     const videoIds = unique(videoMetrics.map((row) => row.videoId).filter(Boolean) as string[]);
     const missingMetadataIds = videoIds.filter((videoId) => !videoMetadataById.has(videoId));
     const fetchedVideoMetadata = await fetchMetadataSafely(() => fetchYouTubeVideos(accessToken, missingMetadataIds), warnings);
@@ -190,7 +191,11 @@ export async function syncYoutubeCmsAnalytics(input: SyncInput) {
       videoMetadataById.set(video.videoId, video);
     }
 
-    const videoMetadata = Array.from(videoMetadataById.values());
+    const analyticsContentTypeByVideoId = getAnalyticsContentTypeByVideoId(videoMetrics);
+    const videoMetadata = Array.from(videoMetadataById.values()).map((video) => ({
+      ...video,
+      contentType: analyticsContentTypeByVideoId.get(video.videoId) ?? video.contentType
+    }));
     const metadataVideoIds = new Set(videoMetadataById.keys());
     const videoMetricsWithCatalog = videoMetrics.filter((row) => row.videoId && metadataVideoIds.has(row.videoId));
 
@@ -357,6 +362,12 @@ function rowsFromReport(
     if (metrics.has("monetizedPlaybacks")) accumulator.monetizedPlaybacks = readNumber(row, "monetizedPlaybacks");
     if (metrics.has("adImpressions")) accumulator.adImpressions = readNumber(row, "adImpressions");
     if (metrics.has("playbackBasedCpm")) accumulator.playbackBasedCpm = readNumber(row, "playbackBasedCpm");
+    if (metrics.has("impressionsClickThroughRate")) {
+      accumulator.impressionsClickThroughRate = readNumber(row, "impressionsClickThroughRate");
+    }
+    if (metrics.has("impressionClickThroughRate")) {
+      accumulator.impressionsClickThroughRate = readNumber(row, "impressionClickThroughRate");
+    }
 
     return accumulator;
   });
@@ -388,33 +399,6 @@ function withChannelId(rows: DailyMetricAccumulator[], channelId: string) {
   return rows.map((row) => ({ ...row, channelId }));
 }
 
-function fillMissingChannelMetricDays(
-  metrics: DailyMetricAccumulator[],
-  channelIds: string[],
-  startDate: string,
-  endDate: string
-) {
-  const rowsByKey = new Map(metrics.map((row) => [`${row.channelId}|${row.day}`, row]));
-
-  for (const channelId of channelIds) {
-    for (const day of getInclusiveDateKeys(startDate, endDate)) {
-      const key = `${channelId}|${day}`;
-      if (!rowsByKey.has(key)) {
-        rowsByKey.set(key, {
-          day,
-          channelId,
-          views: 0,
-          estimatedMinutesWatched: 0,
-          subscribersGained: 0,
-          subscribersLost: 0
-        });
-      }
-    }
-  }
-
-  return Array.from(rowsByKey.values());
-}
-
 async function fetchChannelReports(input: {
   accessToken: string;
   channelId: string;
@@ -426,7 +410,7 @@ async function fetchChannelReports(input: {
   const channelFilter = `channel==${input.channelId}`;
 
   try {
-    const [channelCore, channelRevenue, contentTypeReport, countryReportGroup, videoReportGroup] = await Promise.all([
+    const [channelCore, channelRevenue, channelCtr, contentTypeReport, countryReportGroup, videoReportGroup] = await Promise.all([
       fetchAnalyticsReportWithFallback({
         accessToken: input.accessToken,
         config: input.config,
@@ -450,6 +434,21 @@ async function fetchChannelReports(input: {
             sort: ["day"]
           }),
         `${input.channelId} revenue`,
+        input.warnings
+      ),
+      fetchOptionalReport(
+        () =>
+          fetchAnalyticsReportWithFallback({
+            accessToken: input.accessToken,
+            config: input.config,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            dimensions: ["day"],
+            metricSets: CTR_METRIC_SETS,
+            filters: channelFilter,
+            sort: ["day"]
+          }),
+        `${input.channelId} CTR`,
         input.warnings
       ),
       fetchOptionalReport(
@@ -484,7 +483,7 @@ async function fetchChannelReports(input: {
     ]);
 
     return {
-      channelMetrics: withChannelId(mergeReports(["day"], channelCore, channelRevenue), input.channelId),
+      channelMetrics: withChannelId(mergeReports(["day"], channelCore, channelRevenue, channelCtr), input.channelId),
       contentTypeMetrics: withChannelId(
         rowsFromReport(["day", "creatorContentType"], contentTypeReport),
         input.channelId
@@ -561,7 +560,6 @@ async function fetchVideoPeriodReports(input: {
       config: input.config,
       startDate: period.startDate,
       endDate: period.endDate,
-      dimensions: ["video"] as ["video"],
       metricSets: VIDEO_METRIC_SETS,
       filters: `channel==${input.channelId}`,
       maxResults: 200,
@@ -569,12 +567,24 @@ async function fetchVideoPeriodReports(input: {
     };
     const [topViewedReport, topRevenueReport, recentVideoReports] = await Promise.all([
       fetchOptionalReport(
-        () => fetchAnalyticsReportWithFallback({ ...baseInput, sort: ["-views"] }),
+        () =>
+          fetchVideoAnalyticsReportWithContentTypeFallback({
+            ...baseInput,
+            label: `${input.channelId} top viewed videos ${period.startDate} to ${period.endDate}`,
+            sort: ["-views"],
+            warnings: input.warnings
+          }),
         `${input.channelId} top viewed videos ${period.startDate} to ${period.endDate}`,
         input.warnings
       ),
       fetchOptionalReport(
-        () => fetchAnalyticsReportWithFallback({ ...baseInput, sort: ["-estimatedRevenue"] }),
+        () =>
+          fetchVideoAnalyticsReportWithContentTypeFallback({
+            ...baseInput,
+            label: `${input.channelId} top revenue videos ${period.startDate} to ${period.endDate}`,
+            sort: ["-estimatedRevenue"],
+            warnings: input.warnings
+          }),
         `${input.channelId} top revenue videos ${period.startDate} to ${period.endDate}`,
         input.warnings
       ),
@@ -587,7 +597,7 @@ async function fetchVideoPeriodReports(input: {
     ]);
 
     return {
-      metrics: mergeReportRows(["video"], [topViewedReport, topRevenueReport, ...recentVideoReports], {
+      metrics: mergeReportRows(["video", "creatorContentType"], [topViewedReport, topRevenueReport, ...recentVideoReports], {
         defaultDay: period.startDate,
         channelId: input.channelId
       }),
@@ -606,7 +616,6 @@ async function fetchVideoIdReports(input: {
   config: ReturnType<typeof getYouTubeCmsConfig>;
   startDate: string;
   endDate: string;
-  dimensions: ["video"];
   metricSets: string[][];
   filters: string;
   maxResults: number;
@@ -621,22 +630,69 @@ async function fetchVideoIdReports(input: {
     await mapWithConcurrency(idChunks, 3, async ({ ids, index }) =>
       fetchOptionalReport(
         () =>
-          fetchAnalyticsReportWithFallback({
+          fetchVideoAnalyticsReportWithContentTypeFallback({
             accessToken: input.accessToken,
             config: input.config,
             startDate: input.startDate,
             endDate: input.endDate,
-            dimensions: input.dimensions,
             metricSets: input.metricSets,
             filters: `${input.filters};video==${ids.join(",")}`,
+            label: `${input.label} chunk ${index + 1}`,
             maxResults: input.maxResults,
-            paginate: input.paginate
+            paginate: input.paginate,
+            warnings: input.warnings
           }),
         `${input.label} chunk ${index + 1}`,
         input.warnings
       )
     )
   ).filter((report) => report.rows.length > 0);
+}
+
+async function fetchVideoAnalyticsReportWithContentTypeFallback(input: {
+  accessToken: string;
+  config: ReturnType<typeof getYouTubeCmsConfig>;
+  startDate: string;
+  endDate: string;
+  metricSets: string[][];
+  filters: string;
+  label: string;
+  maxResults: number;
+  paginate: false;
+  sort?: string[];
+  warnings: string[];
+}) {
+  try {
+    return await fetchAnalyticsReportWithFallback({
+      accessToken: input.accessToken,
+      config: input.config,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      dimensions: ["video", "creatorContentType"],
+      metricSets: input.metricSets,
+      filters: input.filters,
+      maxResults: input.maxResults,
+      paginate: input.paginate,
+      sort: input.sort
+    });
+  } catch (error) {
+    input.warnings.push(
+      `${input.label} creatorContentType unavailable; falling back to video-only analytics: ${getErrorMessage(error)}`
+    );
+
+    return fetchAnalyticsReportWithFallback({
+      accessToken: input.accessToken,
+      config: input.config,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      dimensions: ["video"],
+      metricSets: input.metricSets,
+      filters: input.filters,
+      maxResults: input.maxResults,
+      paginate: input.paginate,
+      sort: input.sort
+    });
+  }
 }
 
 async function upsertChannelMetrics(
@@ -666,9 +722,18 @@ async function upsertChannelMetrics(
       playback_based_cpm: row.playbackBasedCpm ?? 0,
       updated_at: updatedAt
     }));
+  const ctrRows = metrics
+    .filter((row) => row.impressionsClickThroughRate !== undefined)
+    .map((row) => ({
+      day: row.day,
+      channel_id: row.channelId,
+      impressions_click_through_rate: row.impressionsClickThroughRate ?? null,
+      updated_at: updatedAt
+    }));
 
   await upsertInChunks(supabase, "youtube_channel_daily_metrics", coreRows, "day,channel_id");
   await upsertInChunks(supabase, "youtube_channel_daily_metrics", revenueRows, "day,channel_id");
+  await upsertInChunks(supabase, "youtube_channel_daily_metrics", ctrRows, "day,channel_id");
 }
 
 async function upsertVideoMetrics(
@@ -704,6 +769,17 @@ function hasRevenueMetric(row: DailyMetricAccumulator) {
     row.adImpressions !== undefined ||
     row.playbackBasedCpm !== undefined
   );
+}
+
+function getAnalyticsContentTypeByVideoId(metrics: DailyMetricAccumulator[]) {
+  const contentTypeByVideoId = new Map<string, VideoContentType>();
+
+  for (const row of metrics) {
+    if (!row.videoId || !row.contentType || row.contentType === "unknown") continue;
+    contentTypeByVideoId.set(row.videoId, row.contentType);
+  }
+
+  return contentTypeByVideoId;
 }
 
 async function upsertVideoCatalog(

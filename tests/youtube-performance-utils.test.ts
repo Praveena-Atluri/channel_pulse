@@ -38,11 +38,11 @@ test("classifies recent videos as selected or previous calendar month", () => {
   assert.equal(getVideoCohort("2026-03-31T23:59:59Z", "2026-05"), "old");
 });
 
-test("parses ISO 8601 durations and falls back to duration-based content type", () => {
+test("parses ISO 8601 durations without using duration as content type", () => {
   assert.equal(parseIsoDurationToSeconds("PT2M30S"), 150);
   assert.equal(parseIsoDurationToSeconds("PT1H02M03S"), 3723);
-  assert.equal(classifyVideoContentType({ durationSeconds: 150 }), "short");
-  assert.equal(classifyVideoContentType({ durationSeconds: 600 }), "long");
+  assert.equal(classifyVideoContentType({ durationSeconds: 150 }), "unknown");
+  assert.equal(classifyVideoContentType({ durationSeconds: 600 }), "unknown");
 });
 
 test("prefers analytics content type when available", () => {

@@ -8,8 +8,10 @@ type AutoSyncChannel = {
 type EnsureYoutubeAnalyticsRangeDataInput = {
   channels: AutoSyncChannel[];
   forceSync?: boolean;
+  postSyncCheckAttempts?: number;
   startDate: string;
   endDate: string;
+  throwOnIncomplete?: boolean;
 };
 
 const CHECK_PAGE_SIZE = 1000;
@@ -21,8 +23,10 @@ const inFlightSyncs = new Map<string, Promise<void>>();
 export async function ensureYoutubeAnalyticsRangeData({
   channels,
   forceSync = false,
+  postSyncCheckAttempts = POST_SYNC_CHECK_ATTEMPTS,
   startDate,
-  endDate
+  endDate,
+  throwOnIncomplete = true
 }: EnsureYoutubeAnalyticsRangeDataInput) {
   const channelIds = getUniqueChannelIds(channels);
   if (channelIds.length === 0) {
@@ -47,10 +51,15 @@ export async function ensureYoutubeAnalyticsRangeData({
   });
 
   if (missingChannelIds.length > 0) {
-    const syncedChannelIds = await waitForChannelsWithCompleteMetrics(missingChannelIds, startDate, endDate);
+    const syncedChannelIds = await waitForChannelsWithCompleteMetrics(
+      missingChannelIds,
+      startDate,
+      endDate,
+      postSyncCheckAttempts
+    );
     const incompleteChannelIds = missingChannelIds.filter((channelId) => !syncedChannelIds.has(channelId));
 
-    if (incompleteChannelIds.length > 0) {
+    if (incompleteChannelIds.length > 0 && throwOnIncomplete) {
       const firstIncompleteChannelId = incompleteChannelIds[0];
       const syncError = syncErrors.get(firstIncompleteChannelId);
       if (syncError) {
@@ -81,10 +90,15 @@ function getUniqueChannelIds(channels: AutoSyncChannel[]) {
   return Array.from(new Set(channels.map((channel) => channel.channelId).filter(Boolean)));
 }
 
-async function waitForChannelsWithCompleteMetrics(channelIds: string[], startDate: string, endDate: string) {
-  for (let attempt = 1; attempt <= POST_SYNC_CHECK_ATTEMPTS; attempt += 1) {
+async function waitForChannelsWithCompleteMetrics(
+  channelIds: string[],
+  startDate: string,
+  endDate: string,
+  maxAttempts: number
+) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const completeChannelIds = await getChannelsWithCompleteMetrics(channelIds, startDate, endDate);
-    if (channelIds.every((channelId) => completeChannelIds.has(channelId)) || attempt === POST_SYNC_CHECK_ATTEMPTS) {
+    if (channelIds.every((channelId) => completeChannelIds.has(channelId)) || attempt === maxAttempts) {
       return completeChannelIds;
     }
 
@@ -107,7 +121,9 @@ async function getChannelsWithCompleteMetrics(channelIds: string[], startDate: s
   while (true) {
     const { data, error } = await supabase
       .from("youtube_channel_daily_metrics")
-      .select("channel_id,day")
+      .select(
+        "channel_id,day,views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,monetized_playbacks,ad_impressions"
+      )
       .in("channel_id", channelIds)
       .gte("day", startDate)
       .lte("day", endDate)
@@ -117,7 +133,19 @@ async function getChannelsWithCompleteMetrics(channelIds: string[], startDate: s
 
     if (error) throw error;
 
-    for (const row of (data ?? []) as Array<{ channel_id: string; day: string }>) {
+    for (const row of (data ?? []) as Array<{
+      ad_impressions: number | string | null;
+      channel_id: string;
+      day: string;
+      estimated_minutes_watched: number | string | null;
+      estimated_revenue: number | string | null;
+      monetized_playbacks: number | string | null;
+      subscribers_gained: number | string | null;
+      subscribers_lost: number | string | null;
+      views: number | string | null;
+    }>) {
+      if (!hasUsableDailyMetrics(row)) continue;
+
       if (!daysByChannelId.has(row.channel_id)) {
         daysByChannelId.set(row.channel_id, new Set());
       }
@@ -140,6 +168,26 @@ async function getChannelsWithCompleteMetrics(channelIds: string[], startDate: s
   }
 
   return completeChannelIds;
+}
+
+function hasUsableDailyMetrics(row: {
+  ad_impressions: number | string | null;
+  estimated_minutes_watched: number | string | null;
+  estimated_revenue: number | string | null;
+  monetized_playbacks: number | string | null;
+  subscribers_gained: number | string | null;
+  subscribers_lost: number | string | null;
+  views: number | string | null;
+}) {
+  return (
+    toNumber(row.views) > 0 ||
+    toNumber(row.estimated_minutes_watched) > 0 ||
+    toNumber(row.subscribers_gained) > 0 ||
+    toNumber(row.subscribers_lost) > 0 ||
+    toNumber(row.estimated_revenue) > 0 ||
+    toNumber(row.monetized_playbacks) > 0 ||
+    toNumber(row.ad_impressions) > 0
+  );
 }
 
 function sleep(milliseconds: number) {
@@ -222,4 +270,9 @@ function parseDateKey(value: string) {
   const month = Number(match[2]);
   const day = Number(match[3]);
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+function toNumber(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }

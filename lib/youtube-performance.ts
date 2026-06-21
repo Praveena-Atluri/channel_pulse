@@ -74,6 +74,7 @@ export type YoutubePerformanceDashboardData = {
     revenue: number;
     netSubscribers: number;
   };
+  availableContentTypes: VideoContentType[];
   longShortSplit: Array<{ contentType: VideoContentType; views: number; revenue: number }>;
   countryRevenueBreakdown: CountryRevenueRow[];
   cohortSummary: {
@@ -107,6 +108,7 @@ export type YoutubeComparisonDashboardData = {
     subscribers: ComparisonDelta;
     revenue: ComparisonDelta;
   };
+  availableContentTypes: VideoContentType[];
   contentTypeComparison: Array<{
     contentType: VideoContentType;
     primaryViews: number;
@@ -325,6 +327,7 @@ export async function getYoutubePerformanceDashboard(
             calculateNetSubscribers(channelPreviousTotals)
           )
         },
+        availableContentTypes: ["short", "long"],
         longShortSplit: [],
         countryRevenueBreakdown: [],
         cohortSummary: { old: createEmptyTotals(), recent: createEmptyTotals() },
@@ -377,6 +380,7 @@ export async function getYoutubePerformanceDashboard(
     };
 
     const longShortSplit = buildContentTypeSplit(currentContentTypeRows, filters);
+    const availableContentTypes = buildAvailableContentTypes(currentContentTypeRows);
     const oldRows = currentVideos.filteredRows.filter((row) => row.cohort === "old");
     const videoMetricsAvailable =
       currentVideos.allRows.some(hasVideoPerformanceMetrics) ||
@@ -405,6 +409,7 @@ export async function getYoutubePerformanceDashboard(
           calculateNetSubscribers(channelPreviousTotals)
         )
       },
+      availableContentTypes,
       longShortSplit,
       countryRevenueBreakdown: buildCountryRevenueBreakdown(currentCountryRows).slice(0, 10),
       cohortSummary,
@@ -505,6 +510,7 @@ export async function getYoutubeComparisonDashboard(
             comparisonChannelTotals.estimatedRevenue
           )
         },
+        availableContentTypes: ["short", "long"],
         contentTypeComparison: [],
         topViewedRangeOneVideos: [],
         topViewedRangeTwoVideos: [],
@@ -565,6 +571,7 @@ export async function getYoutubeComparisonDashboard(
         ),
         revenue: buildComparisonDelta(primaryTotals.estimatedRevenue, comparisonTotals.estimatedRevenue)
       },
+      availableContentTypes: buildAvailableContentTypes([...primaryContentTypeRows, ...comparisonContentTypeRows]),
       contentTypeComparison: buildContentTypeComparison(primaryContentTypeRows, comparisonContentTypeRows, filters),
       topViewedRangeOneVideos: sortByMetric(primaryVideos.filteredRows, "views").slice(0, VIDEO_TABLE_RESULT_LIMIT),
       topViewedRangeTwoVideos: sortByMetric(comparisonVideos.filteredRows, "views").slice(0, VIDEO_TABLE_RESULT_LIMIT),
@@ -1029,7 +1036,9 @@ function buildContentTypeSplit(rows: ContentTypeMetricRow[], filters: YoutubePer
     split.set(row.content_type, item);
   }
 
-  return Array.from(split.values()).sort((left, right) => right.views - left.views);
+  return Array.from(split.values())
+    .filter((item) => shouldShowContentType(item.contentType, item.views))
+    .sort((left, right) => right.views - left.views);
 }
 
 function buildCountryRevenueBreakdown(rows: CountryMetricRow[]) {
@@ -1083,7 +1092,30 @@ function buildContentTypeComparison(
         revenueDelta: comparison.estimatedRevenue - primary.estimatedRevenue
       };
     })
+    .filter((row) => shouldShowContentType(row.contentType, row.primaryViews + row.comparisonViews))
     .sort((left, right) => right.primaryViews - left.primaryViews);
+}
+
+function buildAvailableContentTypes(rows: ContentTypeMetricRow[]) {
+  const visibleTypes = new Set<VideoContentType>(["short", "long"]);
+  const totalsByType = buildContentTypeTotalsByType(rows, "all");
+
+  for (const contentType of ["live", "unknown"] satisfies VideoContentType[]) {
+    const views = totalsByType.get(contentType)?.views ?? 0;
+    if (views > 0) {
+      visibleTypes.add(contentType);
+    }
+  }
+
+  return Array.from(visibleTypes);
+}
+
+function shouldShowContentType(contentType: VideoContentType, views: number) {
+  if (contentType === "live" || contentType === "unknown") {
+    return views > 0;
+  }
+
+  return true;
 }
 
 function buildContentTypeTotalsByType(rows: ContentTypeMetricRow[], contentTypeFilter: ContentTypeFilter) {
@@ -1224,6 +1256,7 @@ function emptyDashboard(filters: YoutubePerformanceFilters): YoutubePerformanceD
     channelSubscriberTotals: createEmptyTotals(),
     previousChannelSubscriberTotals: createEmptyTotals(),
     growth: { views: 0, watchTime: 0, revenue: 0, netSubscribers: 0 },
+    availableContentTypes: ["short", "long"],
     longShortSplit: [],
     countryRevenueBreakdown: [],
     cohortSummary: { old: createEmptyTotals(), recent: createEmptyTotals() },
@@ -1263,6 +1296,7 @@ function emptyComparisonDashboard(filters: YoutubeComparisonFilters): YoutubeCom
       subscribers: buildComparisonDelta(0, 0),
       revenue: buildComparisonDelta(0, 0)
     },
+    availableContentTypes: ["short", "long"],
     contentTypeComparison: [],
     topViewedRangeOneVideos: [],
     topViewedRangeTwoVideos: [],

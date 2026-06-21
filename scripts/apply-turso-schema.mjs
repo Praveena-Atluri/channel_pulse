@@ -34,17 +34,29 @@ async function ensureMonthlyTargetColumns() {
   const columns = new Set(result.rows.map((row) => String(row.name)));
   const additions = [
     {
+      table: "youtube_channel_daily_metrics",
+      name: "impressions_click_through_rate",
+      sql: "alter table youtube_channel_daily_metrics add column impressions_click_through_rate real"
+    },
+    {
+      table: "youtube_monthly_channel_targets",
       name: "short_videos_target",
       sql: "alter table youtube_monthly_channel_targets add column short_videos_target integer check (short_videos_target is null or short_videos_target >= 0)"
     },
     {
+      table: "youtube_monthly_channel_targets",
       name: "long_videos_target",
       sql: "alter table youtube_monthly_channel_targets add column long_videos_target integer check (long_videos_target is null or long_videos_target >= 0)"
     }
   ];
 
   for (const addition of additions) {
-    if (!columns.has(addition.name)) {
+    const tableColumns =
+      addition.table === "youtube_monthly_channel_targets"
+        ? columns
+        : new Set((await turso.execute(`pragma table_info(${addition.table})`)).rows.map((row) => String(row.name)));
+
+    if (!tableColumns.has(addition.name)) {
       await turso.execute(addition.sql);
     }
   }

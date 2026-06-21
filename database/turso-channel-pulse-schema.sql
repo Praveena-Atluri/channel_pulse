@@ -48,6 +48,7 @@ create table if not exists youtube_channel_daily_metrics (
   monetized_playbacks       integer not null default 0,
   ad_impressions            integer not null default 0,
   playback_based_cpm        real not null default 0,
+  impressions_click_through_rate real,
   created_at                text not null default (datetime('now')),
   updated_at                text not null default (datetime('now')),
   primary key (day, channel_id)

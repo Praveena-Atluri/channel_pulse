@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CalendarDays, FileDown, GitCompareArrows, LoaderCircle, Target } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarDays, FileDown, GitCompareArrows, LoaderCircle, Target } from "lucide-react";
 import Link from "next/link";
 import { useState, type MouseEvent } from "react";
 
@@ -20,6 +20,13 @@ const dashboardLinks = [
     description: "Compare two custom date ranges for views, watch time, subscribers, formats, and video gains.",
     Icon: GitCompareArrows,
     adminOnly: false
+  },
+  {
+    href: "/weekly",
+    title: "Weekly Performance",
+    description: "Review weekly channel performance, comparisons, strengths, and weaknesses.",
+    Icon: BarChart3,
+    adminOnly: true
   },
   {
     href: "/reports",

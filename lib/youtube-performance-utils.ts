@@ -27,8 +27,6 @@ export const EMPTY_TOTALS: MetricTotals = {
   playbackBasedCpm: 0
 };
 
-const SHORTS_FALLBACK_MAX_SECONDS = 180;
-
 export function createEmptyTotals(): MetricTotals {
   return { ...EMPTY_TOTALS };
 }
@@ -161,11 +159,7 @@ export function classifyVideoContentType(input: {
   const analyticsType = normalizeAnalyticsContentType(input.analyticsContentType);
   if (analyticsType !== "unknown") return analyticsType;
 
-  if (typeof input.durationSeconds !== "number") {
-    return "unknown";
-  }
-
-  return input.durationSeconds <= SHORTS_FALLBACK_MAX_SECONDS ? "short" : "long";
+  return "unknown";
 }
 
 export function normalizeReportDate(date: Date) {
