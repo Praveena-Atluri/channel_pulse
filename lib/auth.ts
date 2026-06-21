@@ -16,7 +16,6 @@ export type ChannelAccess = {
 
 type AuthCookieOptions = {
   httpOnly: boolean;
-  maxAge: number;
   path: string;
   sameSite: "lax";
   secure: boolean;
@@ -91,7 +90,6 @@ export function isChannelAllowedForAccount(account: ChannelPulseAccount, channel
 export function getAuthCookieOptions(): AuthCookieOptions {
   return {
     httpOnly: true,
-    maxAge: SESSION_TTL_SECONDS,
     path: "/",
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production"

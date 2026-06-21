@@ -33,6 +33,9 @@ type DailyMetricsPageProps = {
   }>;
 };
 
+const RECENT_METRIC_FRESHNESS_DAYS = 4;
+const REVENUE_PENDING_DAYS = 7;
+
 export default async function DailyMetricsPage({ searchParams }: DailyMetricsPageProps) {
   const params = await searchParams;
   const account = await requireCurrentAccount("/daily");
@@ -42,7 +45,8 @@ export default async function DailyMetricsPage({ searchParams }: DailyMetricsPag
   const maxDate = getMaxDailyMetricsDate();
   const defaultDate = getDefaultDailyMetricsDate();
   const date = normalizeDailyMetricsDate(params.date, maxDate, defaultDate);
-  const showFreshnessNote = isWithinRecentDays(date, maxDate, 4);
+  const showFreshnessNote = isWithinRecentDays(date, maxDate, RECENT_METRIC_FRESHNESS_DAYS);
+  const shouldMarkRevenuePending = canViewRevenue && isWithinRecentDays(date, maxDate, REVENUE_PENDING_DAYS);
   const requestedChannelId = params.channel || "all";
   const channelId =
     requestedChannelId === "all" || channels.some((channel) => channel.channelId === requestedChannelId)
@@ -53,9 +57,11 @@ export default async function DailyMetricsPage({ searchParams }: DailyMetricsPag
 
   if (isYouTubeCmsConfigured()) {
     try {
-      const missingDailyMetricRows = dashboard.rows.filter((row) => !row.hasDailyMetrics);
-      if (missingDailyMetricRows.length > 0) {
-        await syncMissingDailyVideoMetrics(missingDailyMetricRows, date);
+      const rowsNeedingDailyMetricSync = dashboard.rows.filter(
+        (row) => !row.hasDailyMetrics || shouldRefreshPendingRevenue(row, shouldMarkRevenuePending)
+      );
+      if (rowsNeedingDailyMetricSync.length > 0) {
+        await syncMissingDailyVideoMetrics(rowsNeedingDailyMetricSync, date);
         dashboard = await getDailyMetricsDashboardData({ channelId, channels, date });
       }
     } catch (error) {
@@ -162,7 +168,11 @@ export default async function DailyMetricsPage({ searchParams }: DailyMetricsPag
           />
           <SummaryCard label="Same-day views" value={formatNullableNumber(dashboard.totals.views)} />
           {canViewRevenue ? (
-            <SummaryCard label="Same-day revenue" value={formatNullableCurrency(dashboard.totals.estimatedRevenue)} />
+            <SummaryCard
+              helper={shouldMarkRevenuePending && isZeroRevenue(dashboard.totals.estimatedRevenue) ? "Revenue can arrive later" : undefined}
+              label="Same-day revenue"
+              value={formatDailyRevenue(dashboard.totals.estimatedRevenue, shouldMarkRevenuePending)}
+            />
           ) : null}
         </section>
 
@@ -181,7 +191,11 @@ export default async function DailyMetricsPage({ searchParams }: DailyMetricsPag
                     {syncMessage ? <span className="mt-1 block">{syncMessage}</span> : null}
                   </div>
                 ) : null}
-                <DailyVideoTable canViewRevenue={canViewRevenue} rows={dashboard.rows} />
+                <DailyVideoTable
+                  canViewRevenue={canViewRevenue}
+                  rows={dashboard.rows}
+                  shouldMarkRevenuePending={shouldMarkRevenuePending}
+                />
               </div>
             ) : (
               <div className="rounded-md border bg-muted/30 p-4 text-sm font-semibold text-muted-foreground">
@@ -208,7 +222,15 @@ async function syncMissingDailyVideoMetrics(rows: DailyMetricsVideoRow[], date: 
   }
 }
 
-function DailyVideoTable({ canViewRevenue, rows }: { canViewRevenue: boolean; rows: DailyMetricsVideoRow[] }) {
+function DailyVideoTable({
+  canViewRevenue,
+  rows,
+  shouldMarkRevenuePending
+}: {
+  canViewRevenue: boolean;
+  rows: DailyMetricsVideoRow[];
+  shouldMarkRevenuePending: boolean;
+}) {
   return (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-[62rem] border-collapse text-sm">
@@ -263,7 +285,7 @@ function DailyVideoTable({ canViewRevenue, rows }: { canViewRevenue: boolean; ro
               </td>
               {canViewRevenue ? (
                 <td className="px-3 py-2 text-right align-top font-bold tabular-nums">
-                  {formatNullableCurrency(row.estimatedRevenue)}
+                  {formatDailyRevenue(row.estimatedRevenue, shouldMarkRevenuePending)}
                 </td>
               ) : null}
               <td className="px-3 py-2 align-top text-muted-foreground">{formatDateTimeLabel(row.publishedAt)}</td>
@@ -342,6 +364,20 @@ function formatCurrency(value: number) {
 
 function formatNullableCurrency(value: number | null) {
   return value === null ? "Unavailable" : formatCurrency(value);
+}
+
+function formatDailyRevenue(value: number | null, shouldMarkPending: boolean) {
+  if (value === null) return "Unavailable";
+  if (shouldMarkPending && isZeroRevenue(value)) return "Pending";
+  return formatCurrency(value);
+}
+
+function isZeroRevenue(value: number | null) {
+  return value !== null && Math.abs(value) < 0.000001;
+}
+
+function shouldRefreshPendingRevenue(row: DailyMetricsVideoRow, shouldMarkRevenuePending: boolean) {
+  return shouldMarkRevenuePending && row.hasDailyMetrics && isZeroRevenue(row.estimatedRevenue);
 }
 
 function formatDateLabel(value: string) {
