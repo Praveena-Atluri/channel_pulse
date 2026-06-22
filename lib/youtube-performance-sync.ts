@@ -666,7 +666,8 @@ async function fetchCountryPeriodReports(input: {
   periods: Array<{ startDate: string; endDate: string }>;
   warnings: string[];
 }) {
-  const periodRows = await mapWithConcurrency(input.periods, 2, async (period) => {
+  const monthStartPeriods = input.periods.filter((period) => isMonthStartDate(period.startDate));
+  const periodRows = await mapWithConcurrency(monthStartPeriods, 2, async (period) => {
     const countryReport = await fetchOptionalReport(
       () =>
         fetchAnalyticsReportWithFallback({
@@ -690,6 +691,10 @@ async function fetchCountryPeriodReports(input: {
   });
 
   return { metrics: periodRows.flat() };
+}
+
+function isMonthStartDate(date: string) {
+  return /^\d{4}-\d{2}-01$/.test(date);
 }
 
 async function fetchVideoPeriodReports(input: {
@@ -1168,7 +1173,7 @@ async function upsertCountryMetrics(
   metrics: DailyMetricAccumulator[]
 ) {
   const rows = metrics
-    .filter((row) => row.countryCode && row.channelId)
+    .filter((row) => row.countryCode && row.channelId && row.day)
     .map((row) => ({
       day: row.day,
       channel_id: row.channelId,
@@ -1184,7 +1189,26 @@ async function upsertCountryMetrics(
       updated_at: new Date().toISOString()
     }));
 
+  await deleteCountryMetricsForDays(supabase, rows);
   await upsertInChunks(supabase, "youtube_country_daily_metrics", rows, "day,channel_id,country_code");
+}
+
+async function deleteCountryMetricsForDays(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  rows: Array<{ channel_id: string; day: string }>
+) {
+  const dayKeys = unique(rows.map((row) => `${row.channel_id}|${row.day}`));
+
+  for (const key of dayKeys) {
+    const [channelId, day] = key.split("|");
+    const { error } = await supabase
+      .from("youtube_country_daily_metrics")
+      .delete()
+      .eq("channel_id", channelId)
+      .eq("day", day);
+
+    if (error) throw error;
+  }
 }
 
 async function upsertInChunks(

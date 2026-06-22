@@ -21,7 +21,7 @@ type OrderClause = {
   ascending: boolean;
 };
 
-type QueryMode = "select" | "insert" | "update" | "upsert";
+type QueryMode = "select" | "insert" | "update" | "upsert" | "delete";
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const TRANSIENT_QUERY_ATTEMPTS = 3;
@@ -86,6 +86,11 @@ class TursoQueryBuilder implements PromiseLike<QueryResult> {
   update(payload: Record<string, unknown>) {
     this.mode = "update";
     this.payload = payload;
+    return this;
+  }
+
+  delete() {
+    this.mode = "delete";
     return this;
   }
 
@@ -161,14 +166,18 @@ class TursoQueryBuilder implements PromiseLike<QueryResult> {
 
   private async execute(): Promise<QueryResult> {
     try {
-      const rows =
-        this.mode === "insert"
-          ? await this.executeInsert()
-          : this.mode === "update"
-            ? await this.executeUpdate()
-            : this.mode === "upsert"
-              ? await this.executeUpsert()
-              : await this.executeSelect();
+      let rows: Row[];
+      if (this.mode === "insert") {
+        rows = await this.executeInsert();
+      } else if (this.mode === "update") {
+        rows = await this.executeUpdate();
+      } else if (this.mode === "upsert") {
+        rows = await this.executeUpsert();
+      } else if (this.mode === "delete") {
+        rows = await this.executeDelete();
+      } else {
+        rows = await this.executeSelect();
+      }
 
       return { data: this.formatRows(rows), error: null };
     } catch (error) {
@@ -245,6 +254,24 @@ class TursoQueryBuilder implements PromiseLike<QueryResult> {
         .map(quoteIdentifier)
         .join(", ")}) values ${valuesSql} on conflict (${conflictSql}) ${updateSql}${returning}`
     }));
+
+    return result.rows;
+  }
+
+  private async executeDelete() {
+    const args: InValue[] = [];
+    const where = this.buildWhereClause(args);
+    if (!where) {
+      throw new Error("Refusing to delete without filters.");
+    }
+
+    const returning = this.shouldReturnRows ? ` returning ${buildSelectList(this.columns)}` : "";
+    const result = await executeWithTransientRetry(() =>
+      this.client.execute({
+        args,
+        sql: `delete from ${quoteIdentifier(this.table)}${where}${returning}`
+      })
+    );
 
     return result.rows;
   }
