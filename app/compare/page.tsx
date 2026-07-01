@@ -65,6 +65,7 @@ const CHANNEL_CHART_COLORS = [
   "#475569",
   "#ea580c"
 ];
+const ANALYTICS_RECENCY_WARNING_DAYS = 3;
 
 export default async function YoutubeComparisonPage({ searchParams }: YoutubeComparisonPageProps) {
   const params = await searchParams;
@@ -122,6 +123,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
   const canShowComparisonData = hasComparisonData && !autoSyncError;
   const canShowVideoLeaderboards = dashboard.filters.channelId !== "all";
   const canShowChannelBreakdown = dashboard.filters.channelId === "all" && dashboard.channelBreakdown.length > 0;
+  const shouldShowRecentDateWarning = hasRecentAnalyticsDate(dashboard.filters);
   const dashboardRenderKey = [
     dashboard.filters.primaryStartDate,
     dashboard.filters.primaryEndDate,
@@ -250,6 +252,13 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
                 autoSyncError ||
                 "Channel Pulse could not load data for the selected comparison ranges. The YouTube CMS did not return data for this channel and date range."
               }
+            />
+          ) : null}
+
+          {shouldShowRecentDateWarning ? (
+            <StatusPanel
+              title="Recent YouTube Analytics data may still be processing"
+              message={`One or more selected dates are within the last ${ANALYTICS_RECENCY_WARNING_DAYS} days. YouTube can take some time to finalize analytics, so this comparison may use cached or partial data until newer metrics are available.`}
             />
           ) : null}
 
@@ -524,8 +533,11 @@ function ChannelMetricBlock({
           <Icon className="size-4 shrink-0 text-primary" />
           <span className="truncate text-sm font-black">{label}</span>
         </div>
-        <span className={`whitespace-nowrap text-xs font-black tabular-nums ${getSignedMetricClass(delta)}`}>
-          {deltaFormatter(delta)}
+        <span className="grid justify-items-end gap-0.5">
+          <span className="text-[10px] font-black uppercase text-muted-foreground">R2-R1</span>
+          <span className={`whitespace-nowrap text-xs font-black tabular-nums ${getSignedMetricClass(delta)}`}>
+            {deltaFormatter(delta)}
+          </span>
         </span>
       </div>
 
@@ -1167,6 +1179,42 @@ function getContentTypeOptions(availableContentTypes: ReadonlyArray<ContentTypeF
   }
 
   return options;
+}
+
+function hasRecentAnalyticsDate(filters: {
+  primaryStartDate: string;
+  primaryEndDate: string;
+  comparisonStartDate: string;
+  comparisonEndDate: string;
+}) {
+  const today = getIndiaDateKey();
+  const recentCutoff = addDaysToDateKey(today, -ANALYTICS_RECENCY_WARNING_DAYS);
+
+  return (
+    dateRangesOverlap(filters.primaryStartDate, filters.primaryEndDate, recentCutoff, today) ||
+    dateRangesOverlap(filters.comparisonStartDate, filters.comparisonEndDate, recentCutoff, today)
+  );
+}
+
+function dateRangesOverlap(firstStart: string, firstEnd: string, secondStart: string, secondEnd: string) {
+  return firstStart <= secondEnd && secondStart <= firstEnd;
+}
+
+function getIndiaDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Asia/Kolkata",
+    year: "numeric"
+  }).formatToParts(now);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return `${values.get("year")}-${values.get("month")}-${values.get("day")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
 }
 
 function slugify(value: string) {
