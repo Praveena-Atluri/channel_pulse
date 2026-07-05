@@ -28,14 +28,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { canAccountViewRevenue, getAccountChannelAccess, isAuthConfigured } from "@/lib/auth";
 import {
-  MONTHLY_TARGET_METRICS,
   getTargetBaselineMonth,
-  type MonthlyTargetMetric
+  getVisibleMonthlyTargetMetrics,
+  type MonthlyTargetMetric,
+  type MonthlyTargetMetricDefinition
 } from "@/lib/monthly-target-metrics";
 import { getMonthlyTargetDashboardDataSafe, type MonthlyTargetDashboardData } from "@/lib/monthly-targets";
 import { requireCurrentAccount } from "@/lib/server-auth";
-import { isLoginSyncFresh } from "@/lib/login-sync-utils";
-import { ensureYoutubeAnalyticsRangeData, getIncompleteYoutubeAnalyticsChannelIds } from "@/lib/youtube-auto-sync";
 import { isYouTubeCmsConfigured } from "@/lib/youtube-cms-api";
 import {
   getYoutubePerformanceDashboard,
@@ -46,8 +45,6 @@ import {
 } from "@/lib/youtube-performance";
 import {
   calculateNetSubscribers,
-  getCurrentReportMonth,
-  getMonthDateRange,
   type MetricTotals
 } from "@/lib/youtube-performance-utils";
 
@@ -70,62 +67,14 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
     channel: params.channel,
     contentType: params.contentType
   });
-  let dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
+  const dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
   const cmsConfigured = isYouTubeCmsConfigured();
-  const selectedMonthRange = getMonthDateRange(dashboard.selectedMonth);
-  const previousMonthRange = getMonthDateRange(dashboard.previousMonth);
-  let autoSyncError = "";
-  let autoSyncWarning = "";
-
-  if (dashboard.schemaReady && cmsConfigured && !isLoginSyncFresh(dashboard.latestSync?.finishedAt)) {
-    const channelsToSync = getDashboardSyncChannels(dashboard.filters.channelId, dashboard.channels);
-    try {
-      await Promise.all([
-        ensureYoutubeAnalyticsRangeData({
-          channels: channelsToSync,
-          endDate: selectedMonthRange.analyticsEndDate,
-          startDate: selectedMonthRange.startDate,
-          storePeriodBreakdowns: true
-        }),
-        ensureYoutubeAnalyticsRangeData({
-          channels: channelsToSync,
-          endDate: previousMonthRange.analyticsEndDate,
-          startDate: previousMonthRange.startDate,
-          storePeriodBreakdowns: true
-        })
-      ]);
-      dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
-    } catch (error) {
-      const isCompleteAfterSync = await hasCompleteMonthlyDataAfterSync({
-        channels: channelsToSync,
-        previousEndDate: previousMonthRange.analyticsEndDate,
-        previousStartDate: previousMonthRange.startDate,
-        selectedEndDate: selectedMonthRange.analyticsEndDate,
-        selectedStartDate: selectedMonthRange.startDate
-      });
-
-      if (isCompleteAfterSync) {
-        dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
-      } else {
-        autoSyncError = getErrorMessage(error, dashboard.channels);
-      }
-
-      if (autoSyncError && dashboard.selectedMonth === getCurrentReportMonth()) {
-        const refreshedDashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
-        if (refreshedDashboard.hasSelectedMonthData && refreshedDashboard.hasPreviousMonthData) {
-          dashboard = refreshedDashboard;
-          autoSyncWarning = getCurrentMonthSyncWarning(error, refreshedDashboard.channels);
-          autoSyncError = "";
-        }
-      }
-    }
-  }
 
   const netSubscribers = calculateNetSubscribers(dashboard.channelSubscriberTotals);
   const selectedChannel = dashboard.channels.find((channel) => channel.channelId === dashboard.filters.channelId);
   const canEvaluateDataCoverage = dashboard.schemaReady && cmsConfigured;
   const hasComparisonData = canEvaluateDataCoverage && dashboard.hasSelectedMonthData && dashboard.hasPreviousMonthData;
-  const canShowComparisonData = hasComparisonData && !autoSyncError;
+  const canShowComparisonData = hasComparisonData;
   const videoMetricsMessage =
     "Video-level performance is unavailable for this CMS API connection, so channel-level and format-level metrics are shown above.";
   const dashboardRenderKey = [
@@ -134,21 +83,21 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
     dashboard.filters.channelId,
     dashboard.filters.contentType,
     canShowComparisonData ? "loaded" : "empty",
-    autoSyncError,
-    autoSyncWarning,
     Date.now()
   ].join("|");
   const monthlyTargetData =
     dashboard.schemaReady && canEvaluateDataCoverage
       ? await getMonthlyTargetDashboardDataSafe({
           baselineMonth: getTargetBaselineMonth(dashboard.selectedMonth),
+          canViewRevenue,
           channels: getDashboardSyncChannels(dashboard.filters.channelId, dashboard.channels),
           month: dashboard.selectedMonth
         })
       : null;
+  const visibleMonthlyTargetMetrics = getVisibleMonthlyTargetMetrics(canViewRevenue);
   const hasMonthlyTargets = Boolean(
     monthlyTargetData?.schemaReady &&
-      MONTHLY_TARGET_METRICS.some((metric) => monthlyTargetData.totals.target[metric.key] !== null)
+      visibleMonthlyTargetMetrics.some((metric) => monthlyTargetData.totals.target[metric.key] !== null)
   );
 
   return (
@@ -228,6 +177,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
               canRefreshChannels={account.role === "admin"}
               channels={dashboard.channels}
               disabled={!dashboard.schemaReady || !cmsConfigured}
+              includeAllOption
               name="channel"
               value={dashboard.filters.channelId}
             />
@@ -245,20 +195,10 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
         <YoutubeFilterLoadingBoundary
           renderKey={dashboardRenderKey}
         >
-          {autoSyncWarning ? (
-            <StatusPanel
-              title="Recent data is still processing"
-              message={autoSyncWarning}
-            />
-          ) : null}
-
           {canEvaluateDataCoverage && !canShowComparisonData ? (
             <StatusPanel
               title="Data is unavailable"
-              message={
-                autoSyncError ||
-                "Channel Pulse could not load data for the selected range. The YouTube CMS did not return data for this channel and date range."
-              }
+              message="Channel Pulse could not load data for the selected range. The latest login refresh may still be syncing, or the YouTube CMS did not return data for this channel and date range."
             />
           ) : null}
 
@@ -303,6 +243,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                 <TargetProgressCard
                   channelLabel={dashboard.filters.channelId === "all" ? "All channels" : selectedChannel?.title ?? "Selected channel"}
                   data={monthlyTargetData}
+                  metrics={visibleMonthlyTargetMetrics}
                 />
               ) : null}
 
@@ -654,12 +595,14 @@ function CountryRevenueCard({ rows, totalRevenue }: { rows: CountryRevenueRow[];
 
 function TargetProgressCard({
   channelLabel,
-  data
+  data,
+  metrics
 }: {
   channelLabel: string;
   data: MonthlyTargetDashboardData;
+  metrics: readonly MonthlyTargetMetricDefinition[];
 }) {
-  const visibleMetrics = MONTHLY_TARGET_METRICS.filter((metric) => data.totals.target[metric.key] !== null);
+  const visibleMetrics = metrics.filter((metric) => data.totals.target[metric.key] !== null);
 
   return (
     <section>
@@ -732,81 +675,6 @@ function getDashboardSyncChannels<T extends { channelId: string }>(channelId: st
   return channels.filter((channel) => channel.channelId === channelId);
 }
 
-async function hasCompleteMonthlyDataAfterSync({
-  channels,
-  selectedStartDate,
-  selectedEndDate,
-  previousStartDate,
-  previousEndDate
-}: {
-  channels: Array<{ channelId: string }>;
-  selectedStartDate: string;
-  selectedEndDate: string;
-  previousStartDate: string;
-  previousEndDate: string;
-}) {
-  try {
-    const [selectedMissingChannelIds, previousMissingChannelIds] = await Promise.all([
-      getIncompleteYoutubeAnalyticsChannelIds({
-        channels,
-        endDate: selectedEndDate,
-        startDate: selectedStartDate
-      }),
-      getIncompleteYoutubeAnalyticsChannelIds({
-        channels,
-        endDate: previousEndDate,
-        startDate: previousStartDate
-      })
-    ]);
-
-    return selectedMissingChannelIds.length === 0 && previousMissingChannelIds.length === 0;
-  } catch {
-    return false;
-  }
-}
-
-function getErrorMessage(error: unknown, channels: Array<{ channelId: string; title: string }> = []) {
-  const message = getRawErrorMessage(error);
-  const channelMetricMatch = message.match(
-    /YouTube did not return channel metrics for ([A-Za-z0-9_-]+) from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/
-  );
-  if (channelMetricMatch) {
-    const [, channelId, startDate, endDate] = channelMetricMatch;
-    return `YouTube has not returned channel metrics for ${getChannelLabel(channelId, channels)} from ${startDate} to ${endDate}.`;
-  }
-
-  const incompleteMetricMatch = message.match(
-    /complete daily channel metrics were not stored for ([A-Za-z0-9_-]+) from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/
-  );
-  if (incompleteMetricMatch) {
-    const [, channelId, startDate, endDate] = incompleteMetricMatch;
-    return `YouTube has not finished daily metrics for ${getChannelLabel(channelId, channels)} from ${startDate} to ${endDate}.`;
-  }
-
-  if (message.includes("quotaExceeded") || message.toLowerCase().includes("exceeded your quota")) {
-    return "YouTube API quota was exceeded while refreshing this range.";
-  }
-
-  const firstLine = message.split("\n")[0]?.trim();
-  if (firstLine && firstLine.length <= 240) return firstLine;
-
-  return "Automatic data sync failed while refreshing this range.";
-}
-
-function getCurrentMonthSyncWarning(error: unknown, channels: Array<{ channelId: string; title: string }>) {
-  return `${getErrorMessage(error, channels)} Showing the latest stored monthly data. Recent YouTube metrics can lag by a few days.`;
-}
-
-function getChannelLabel(channelId: string, channels: Array<{ channelId: string; title: string }>) {
-  return channels.find((channel) => channel.channelId === channelId)?.title ?? channelId;
-}
-
-function getRawErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Automatic data sync failed.";
-}
-
 function getSplitWidth(views: number, rows: Array<{ views: number }>) {
   const max = Math.max(...rows.map((row) => row.views), 1);
   return Math.max(4, Math.round((views / max) * 100));
@@ -854,6 +722,7 @@ function formatSignedNumber(value: number) {
 }
 
 function formatTargetMetricValue(metric: MonthlyTargetMetric, value: number) {
+  if (metric === "estimatedRevenue") return formatCurrency(value);
   if (metric === "watchHours") return `${formatCompactNumber(value)} hrs`;
   if (metric === "netSubscribers") return formatSignedNumber(value);
 

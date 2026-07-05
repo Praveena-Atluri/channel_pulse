@@ -22,11 +22,13 @@ export async function GET(request: NextRequest) {
 
   const resolved = await resolveWeeklyRequest(request, account);
   if ("error" in resolved) return resolved.error;
+  const canViewRevenue = canAccountViewRevenue(account);
 
   try {
     await ensureWeeklyPerformanceData(resolved);
     const dashboard = await getWeeklyPerformanceDashboard(resolved);
-    return NextResponse.json(canAccountViewRevenue(account) ? dashboard : sanitizeWeeklyPerformanceForViewer(dashboard));
+    const visibleDashboard = canViewRevenue ? dashboard : sanitizeWeeklyPerformanceForViewer(dashboard);
+    return NextResponse.json(visibleDashboard);
   } catch (error) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 502 });
   }

@@ -19,6 +19,7 @@ import {
   type DailyMetricsVideoRow
 } from "@/lib/daily-metrics";
 import {
+  derivePublishingTargetForDays,
   getDailyPublishingTargetDashboardDataSafe,
   type DailyPublishingTargetDashboardRow
 } from "@/lib/daily-targets";
@@ -367,13 +368,16 @@ function formatLastUpdatedLabel(value: string | null | undefined) {
 function getPublishingTargetTotals(rows: DailyPublishingTargetDashboardRow[]) {
   const totals = rows.reduce(
     (current, row) => {
-      if (row.target.longVideos !== null) {
-        current.longVideos += row.target.longVideos;
+      const longVideosTarget = derivePublishingTargetForDays(row.target.longVideos, 1);
+      const shortVideosTarget = derivePublishingTargetForDays(row.target.shortVideos, 1);
+
+      if (longVideosTarget !== null) {
+        current.longVideos += longVideosTarget;
         current.longTargetCount += 1;
       }
 
-      if (row.target.shortVideos !== null) {
-        current.shortVideos += row.target.shortVideos;
+      if (shortVideosTarget !== null) {
+        current.shortVideos += shortVideosTarget;
         current.shortTargetCount += 1;
       }
 

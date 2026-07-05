@@ -8,6 +8,7 @@ import {
 import {
   getDailyPublishingTargetDashboardDataSafe,
   normalizeDailyPublishingTargetValue,
+  normalizePublishingTargetPeriod,
   saveDailyPublishingTargets,
   type SaveDailyPublishingTargetInputRow
 } from "@/lib/daily-targets";
@@ -18,7 +19,9 @@ export const dynamic = "force-dynamic";
 type SaveTargetsRequestBody = {
   rows?: Array<{
     channelId?: unknown;
+    longVideosPeriod?: unknown;
     longVideosTarget?: unknown;
+    shortVideosPeriod?: unknown;
     shortVideosTarget?: unknown;
   }>;
 };
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest) {
     channels: selectedChannels.channels
   });
 
-  return NextResponse.json(dashboard);
+  return NextResponse.json(serializeDailyTargetDashboard(dashboard));
 }
 
 export async function PUT(request: NextRequest) {
@@ -87,7 +90,22 @@ export async function PUT(request: NextRequest) {
     channels: selectedChannels.channels
   });
 
-  return NextResponse.json(dashboard);
+  return NextResponse.json(serializeDailyTargetDashboard(dashboard));
+}
+
+function serializeDailyTargetDashboard(
+  dashboard: Awaited<ReturnType<typeof getDailyPublishingTargetDashboardDataSafe>>
+) {
+  return {
+    ...dashboard,
+    rows: dashboard.rows.map((row) => ({
+      ...row,
+      longVideosPeriod: row.target.longVideos.period,
+      longVideosTarget: row.target.longVideos.value,
+      shortVideosPeriod: row.target.shortVideos.period,
+      shortVideosTarget: row.target.shortVideos.value
+    }))
+  };
 }
 
 async function resolveSelectedChannels(request: NextRequest, account: { channelIds: string[] | null }) {
@@ -126,7 +144,9 @@ function normalizeSaveRows(rows: SaveTargetsRequestBody["rows"]): SaveDailyPubli
     seenChannelIds.add(channelId);
     normalizedRows.push({
       channelId,
+      longVideosPeriod: normalizePublishingTargetPeriod(row.longVideosPeriod),
       longVideosTarget: normalizeDailyPublishingTargetValue(row.longVideosTarget),
+      shortVideosPeriod: normalizePublishingTargetPeriod(row.shortVideosPeriod),
       shortVideosTarget: normalizeDailyPublishingTargetValue(row.shortVideosTarget)
     });
   }

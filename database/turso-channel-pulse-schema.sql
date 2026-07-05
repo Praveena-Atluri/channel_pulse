@@ -145,6 +145,7 @@ create table if not exists youtube_monthly_channel_targets (
   long_videos_target     integer check (long_videos_target is null or long_videos_target >= 0),
   watch_hours_target     real check (watch_hours_target is null or watch_hours_target >= 0),
   net_subscribers_target integer check (net_subscribers_target is null or net_subscribers_target >= 0),
+  estimated_revenue_target real check (estimated_revenue_target is null or estimated_revenue_target >= 0),
   created_by             text,
   updated_by             text,
   created_at             text not null default (datetime('now')),
@@ -155,7 +156,11 @@ create table if not exists youtube_monthly_channel_targets (
 create table if not exists youtube_daily_channel_targets (
   channel_id             text primary key references youtube_managed_channels(channel_id) on delete cascade,
   short_videos_target    integer check (short_videos_target is null or short_videos_target >= 0),
+  short_videos_target_period text not null default 'daily'
+    check (short_videos_target_period in ('daily', 'weekly')),
   long_videos_target     integer check (long_videos_target is null or long_videos_target >= 0),
+  long_videos_target_period text not null default 'daily'
+    check (long_videos_target_period in ('daily', 'weekly')),
   created_by             text,
   updated_by             text,
   created_at             text not null default (datetime('now')),

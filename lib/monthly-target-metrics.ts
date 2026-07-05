@@ -3,43 +3,77 @@ export const MONTHLY_TARGET_METRICS = [
     key: "shortViews",
     label: "Short views",
     dbColumn: "short_views_target",
-    decimals: 0
+    decimals: 0,
+    adminOnly: false
   },
   {
     key: "longViews",
     label: "Long views",
     dbColumn: "long_views_target",
-    decimals: 0
+    decimals: 0,
+    adminOnly: false
   },
   {
     key: "shortVideosToPublish",
     label: "Short videos to publish",
     dbColumn: "short_videos_target",
-    decimals: 0
+    decimals: 0,
+    adminOnly: false
   },
   {
     key: "longVideosToPublish",
     label: "Long videos to publish",
     dbColumn: "long_videos_target",
-    decimals: 0
+    decimals: 0,
+    adminOnly: false
   },
   {
     key: "watchHours",
     label: "Watch hours",
     dbColumn: "watch_hours_target",
-    decimals: 1
+    decimals: 1,
+    adminOnly: false
   },
   {
     key: "netSubscribers",
     label: "Net subscribers",
     dbColumn: "net_subscribers_target",
-    decimals: 0
+    decimals: 0,
+    adminOnly: false
+  },
+  {
+    key: "estimatedRevenue",
+    label: "Estimated revenue",
+    dbColumn: "estimated_revenue_target",
+    decimals: 2,
+    adminOnly: true
   }
 ] as const;
 
 export const TARGET_PERCENT_PRESETS = [5, 10, 15, 20, 25, 50] as const;
 
+export const MONTHLY_TARGET_BASELINE_PRESETS = [
+  {
+    value: "latest-month",
+    label: "Latest complete month"
+  },
+  {
+    value: "last-three-months-average",
+    label: "Last 3 months average"
+  },
+  {
+    value: "highest-in-year",
+    label: "Highest in last year"
+  }
+] as const;
+
+export const DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE = MONTHLY_TARGET_BASELINE_PRESETS[0].value;
+
 export type MonthlyTargetMetric = (typeof MONTHLY_TARGET_METRICS)[number]["key"];
+export type MonthlyTargetMetricDefinition = (typeof MONTHLY_TARGET_METRICS)[number];
+export type MonthlyTargetBaselinePreset = (typeof MONTHLY_TARGET_BASELINE_PRESETS)[number]["value"];
+export type MonthlyTargetBaselineMonthSource = `${number}-${number}`;
+export type MonthlyTargetBaselineSource = MonthlyTargetBaselinePreset | MonthlyTargetBaselineMonthSource;
 
 export type MonthlyTargetValues = Record<MonthlyTargetMetric, number | null>;
 export type MonthlyActualValues = Record<MonthlyTargetMetric, number>;
@@ -68,7 +102,8 @@ export function createEmptyTargetValues(): MonthlyTargetValues {
     shortVideosToPublish: null,
     longVideosToPublish: null,
     watchHours: null,
-    netSubscribers: null
+    netSubscribers: null,
+    estimatedRevenue: null
   };
 }
 
@@ -79,8 +114,21 @@ export function createEmptyActualValues(): MonthlyActualValues {
     shortVideosToPublish: 0,
     longVideosToPublish: 0,
     watchHours: 0,
-    netSubscribers: 0
+    netSubscribers: 0,
+    estimatedRevenue: 0
   };
+}
+
+export function getVisibleMonthlyTargetMetrics(canViewRevenue: boolean) {
+  return MONTHLY_TARGET_METRICS.filter((metric) => canViewRevenue || !metric.adminOnly);
+}
+
+export function getEditableMonthlyTargetMetrics(canViewRevenue: boolean) {
+  return getVisibleMonthlyTargetMetrics(canViewRevenue).filter((metric) => !isPublishingMonthlyTargetMetric(metric.key));
+}
+
+export function isPublishingMonthlyTargetMetric(metric: MonthlyTargetMetric) {
+  return metric === "shortVideosToPublish" || metric === "longVideosToPublish";
 }
 
 export function getEditableTargetMonths(now = new Date()) {
@@ -89,6 +137,22 @@ export function getEditableTargetMonths(now = new Date()) {
   const upcomingMonth = formatMonth(new Date(Date.UTC(year, month, 1)));
 
   return [currentMonth, upcomingMonth];
+}
+
+export function getTargetBaselineMonthOptions(targetMonth: string, now = new Date()) {
+  return getTargetBaselineMonthOptionsFromAnchor(getTargetBaselineMonth(targetMonth, now));
+}
+
+export function getTargetBaselineMonthOptionsFromAnchor(anchorMonth: string) {
+  const months: MonthlyTargetBaselineMonthSource[] = [];
+  let month = anchorMonth;
+
+  for (let index = 0; index < 12; index += 1) {
+    months.push(month as MonthlyTargetBaselineMonthSource);
+    month = getPreviousMonth(month);
+  }
+
+  return months;
 }
 
 export function normalizeEditableTargetMonth(value: string | null | undefined, now = new Date()) {
@@ -108,6 +172,32 @@ export function getTargetBaselineMonth(targetMonth: string, now = new Date()) {
 export function getTargetBaselineCutoffMonth(targetMonth: string, now = new Date()) {
   const currentMonth = getCurrentMonth(now);
   return compareMonths(targetMonth, currentMonth) <= 0 ? targetMonth : currentMonth;
+}
+
+export function normalizeMonthlyTargetBaselineSource(
+  value: string | null | undefined,
+  availableMonths: readonly string[]
+): MonthlyTargetBaselineSource {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE;
+
+  if (isMonthlyTargetBaselinePreset(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  if (isMonthlyTargetBaselineMonthSource(trimmedValue) && availableMonths.includes(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  return DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE;
+}
+
+export function isMonthlyTargetBaselineMonthSource(value: string): value is MonthlyTargetBaselineMonthSource {
+  const match = value.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return false;
+
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12;
 }
 
 export function calculatePercentTarget(metric: MonthlyTargetMetric, baseline: number, percent: number) {
@@ -202,6 +292,10 @@ function calculateProgressPercent(actual: number, target: number | null) {
 
 function compareMonths(left: string, right: string) {
   return left.localeCompare(right);
+}
+
+function isMonthlyTargetBaselinePreset(value: string): value is MonthlyTargetBaselinePreset {
+  return MONTHLY_TARGET_BASELINE_PRESETS.some((preset) => preset.value === value);
 }
 
 function getCurrentMonth(now: Date) {

@@ -22,12 +22,12 @@ export default async function TargetsPage() {
   const availableMonths = getEditableTargetMonths();
 
   return (
-    <main className="youtube-report-page min-h-screen p-4 md:p-6">
+    <main className="youtube-report-page min-h-screen overflow-x-hidden p-4 md:p-6">
       <div className="youtube-report-shell mx-auto flex max-w-7xl flex-col gap-4">
-        <header className="youtube-report-header flex flex-col gap-4 rounded-lg border bg-card/95 p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
+        <header className="youtube-report-header flex min-w-0 flex-col gap-4 rounded-lg border bg-card/95 p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <AppLogo />
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-black">Monthly Targets</h1>
                 <Badge variant="secondary" className="rounded-md">
@@ -42,7 +42,7 @@ export default async function TargetsPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Link href="/" className={buttonVariants({ variant: "secondary", className: "h-10 rounded-md" })}>
               <Home className="size-4" />
               Home
@@ -52,7 +52,7 @@ export default async function TargetsPage() {
           </div>
         </header>
 
-        <section className="rounded-lg border bg-card/95 p-4 shadow-sm">
+        <section className="min-w-0 rounded-lg border bg-card/95 p-4 shadow-sm">
           <div className="mb-4 flex items-center gap-2 text-base font-black">
             <Target className="size-4 text-primary" />
             Target Workspace

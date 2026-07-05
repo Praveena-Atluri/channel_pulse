@@ -15,11 +15,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
+  DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE,
+  MONTHLY_TARGET_BASELINE_PRESETS,
   MONTHLY_TARGET_METRICS,
   TARGET_PERCENT_PRESETS,
   calculatePercentTarget,
+  getEditableMonthlyTargetMetrics,
+  getTargetBaselineMonthOptions,
+  getVisibleMonthlyTargetMetrics,
+  isMonthlyTargetBaselineMonthSource,
+  normalizeMonthlyTargetBaselineSource,
   normalizeTargetValue,
+  type MonthlyTargetBaselineSource,
   type MonthlyTargetMetric,
+  type MonthlyTargetMetricDefinition,
   type MonthlyTargetValues
 } from "@/lib/monthly-target-metrics";
 import type { MonthlyTargetDashboardRow } from "@/lib/monthly-targets";
@@ -40,6 +49,8 @@ type MonthlyTargetsDashboardProps = {
 
 type TargetsPayload = {
   baselineMonth: string;
+  baselineMonths: string[];
+  baselineSource: MonthlyTargetBaselineSource;
   error?: string;
   errorMessage?: string;
   month: string;
@@ -86,6 +97,10 @@ export function MonthlyTargetsDashboard({
   const [rows, setRows] = useState<EditableTargetRow[]>([]);
   const [bulkValues, setBulkValues] = useState(EMPTY_BULK_VALUES);
   const [baselineMonth, setBaselineMonth] = useState("");
+  const [baselineMonths, setBaselineMonths] = useState<string[]>(() => getTargetBaselineMonthOptions(defaultMonth));
+  const [baselineSource, setBaselineSource] = useState<MonthlyTargetBaselineSource>(
+    DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [schemaReady, setSchemaReady] = useState(true);
@@ -96,6 +111,8 @@ export function MonthlyTargetsDashboard({
   const activeMode = canEditTargets ? mode : "status";
   const selectedChannelIds = activeMode === "status" ? statusChannelIds : editChannelIds;
   const setSelectedChannelIds = activeMode === "status" ? setStatusChannelIds : setEditChannelIds;
+  const statusMetrics = useMemo(() => getVisibleMonthlyTargetMetrics(canEditTargets), [canEditTargets]);
+  const editableMetrics = useMemo(() => getEditableMonthlyTargetMetrics(canEditTargets), [canEditTargets]);
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();
@@ -152,7 +169,7 @@ export function MonthlyTargetsDashboard({
     }
 
     const controller = new AbortController();
-    const query = new URLSearchParams({ month });
+    const query = new URLSearchParams({ baseline: baselineSource, month });
     for (const channelId of selectedChannelIds) {
       query.append("channel", channelId);
     }
@@ -173,6 +190,8 @@ export function MonthlyTargetsDashboard({
 
         setSchemaReady(payload.schemaReady);
         setBaselineMonth(payload.baselineMonth);
+        setBaselineMonths(payload.baselineMonths);
+        setBaselineSource(payload.baselineSource);
         setRows(payload.rows.map(toEditableRow));
         if (!payload.schemaReady) {
           setErrorMessage(payload.errorMessage ?? "Apply the monthly targets schema before saving targets.");
@@ -189,7 +208,15 @@ export function MonthlyTargetsDashboard({
       });
 
     return () => controller.abort();
-  }, [month, selectedChannelIds]);
+  }, [month, selectedChannelIds, baselineSource]);
+
+  const updateMonth = (nextMonth: string) => {
+    const nextBaselineMonths = getTargetBaselineMonthOptions(nextMonth);
+
+    setMonth(nextMonth);
+    setBaselineMonths(nextBaselineMonths);
+    setBaselineSource((current) => normalizeMonthlyTargetBaselineSource(current, nextBaselineMonths));
+  };
 
   const toggleChannel = (channelId: string) => {
     setSelectedChannelIds((current) =>
@@ -243,7 +270,12 @@ export function MonthlyTargetsDashboard({
         };
       })
     );
-    setMessage(`${getMetricLabel(metric)} set to +${percent}% from ${formatMonthLabel(baselineMonth)} baseline.`);
+    setMessage(
+      `${getMetricLabel(metric)} set to +${percent}% from ${formatBaselineSourceLabel(
+        baselineSource,
+        baselineMonth
+      )} base.`
+    );
     setErrorMessage("");
   };
 
@@ -273,7 +305,7 @@ export function MonthlyTargetsDashboard({
       requestRows = rows.map((row) => ({
         channelId: row.channelId,
         targets: Object.fromEntries(
-          MONTHLY_TARGET_METRICS.map((metric) => [
+          editableMetrics.map((metric) => [
             metric.key,
             normalizeTargetValue(metric.key, row.target[metric.key])
           ])
@@ -287,7 +319,7 @@ export function MonthlyTargetsDashboard({
 
     try {
       const response = await fetch("/api/targets/monthly", {
-        body: JSON.stringify({ month, rows: requestRows }),
+        body: JSON.stringify({ baselineSource, month, rows: requestRows }),
         headers: { "content-type": "application/json" },
         method: "PUT"
       });
@@ -298,6 +330,8 @@ export function MonthlyTargetsDashboard({
 
       setSchemaReady(payload.schemaReady);
       setBaselineMonth(payload.baselineMonth);
+      setBaselineMonths(payload.baselineMonths);
+      setBaselineSource(payload.baselineSource);
       setRows(payload.rows.map(toEditableRow));
       setMessage(`Targets saved for ${requestRows.length} channel${requestRows.length === 1 ? "" : "s"}.`);
     } catch (error) {
@@ -310,6 +344,7 @@ export function MonthlyTargetsDashboard({
   const downloadTargets = () => {
     try {
       const workbook = buildTargetsExcelWorkbook({
+        metrics: editableMetrics,
         month,
         rows
       });
@@ -322,11 +357,11 @@ export function MonthlyTargetsDashboard({
   };
 
   return (
-    <div className="grid gap-5">
-      <div className={canEditTargets ? "grid gap-3 md:grid-cols-2" : "grid gap-3"}>
+    <div className="grid min-w-0 max-w-full gap-5">
+      <div className={canEditTargets ? "grid min-w-0 gap-3 md:grid-cols-2" : "grid min-w-0 gap-3"}>
         <button
           className={cn(
-            "rounded-md border p-4 text-left transition hover:bg-muted/50",
+            "min-w-0 rounded-md border p-4 text-left transition hover:bg-muted/50",
             activeMode === "status" ? "border-primary bg-primary/10 shadow-sm" : "bg-background/80"
           )}
           type="button"
@@ -343,7 +378,7 @@ export function MonthlyTargetsDashboard({
         {canEditTargets ? (
           <button
             className={cn(
-              "rounded-md border p-4 text-left transition hover:bg-muted/50",
+              "min-w-0 rounded-md border p-4 text-left transition hover:bg-muted/50",
               activeMode === "edit" ? "border-primary bg-primary/10 shadow-sm" : "bg-background/80"
             )}
             type="button"
@@ -362,18 +397,18 @@ export function MonthlyTargetsDashboard({
 
       <div
         className={cn(
-          "grid gap-3",
+          "grid min-w-0 gap-3",
           activeMode === "edit"
             ? "md:grid-cols-[minmax(12rem,0.5fr)_minmax(0,1fr)]"
             : "md:grid-cols-[minmax(12rem,0.35fr)_minmax(18rem,0.65fr)]"
         )}
       >
-        <label className="grid gap-1 text-sm font-semibold text-muted-foreground">
+        <label className="grid min-w-0 gap-1 text-sm font-semibold text-muted-foreground">
           Month
           <select
-            className="h-11 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+            className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
             value={month}
-            onChange={(event) => setMonth(event.target.value)}
+            onChange={(event) => updateMonth(event.target.value)}
           >
             {availableMonths.map((availableMonth) => (
               <option key={availableMonth} value={availableMonth}>
@@ -384,7 +419,7 @@ export function MonthlyTargetsDashboard({
         </label>
 
         {activeMode === "status" ? (
-          <div className="grid gap-1 text-sm font-semibold text-muted-foreground">
+          <div className="grid min-w-0 gap-1 text-sm font-semibold text-muted-foreground">
             <span>Channels</span>
             <details className="group relative" ref={statusChannelDropdownRef}>
               <summary className="flex h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring [&::-webkit-details-marker]:hidden">
@@ -447,18 +482,35 @@ export function MonthlyTargetsDashboard({
             </details>
           </div>
         ) : (
-          <div className="grid gap-1 text-sm font-semibold text-muted-foreground">
-            <span>Baseline</span>
-            <div className="flex h-11 items-center rounded-md border bg-background px-3 text-sm font-semibold text-foreground">
-              {baselineMonth ? formatMonthLabel(baselineMonth) : "Select channels"}
-            </div>
-          </div>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold text-muted-foreground">
+            Baseline
+            <select
+              className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+              value={baselineSource}
+              onChange={(event) =>
+                setBaselineSource(normalizeMonthlyTargetBaselineSource(event.target.value, baselineMonths))
+              }
+            >
+              {MONTHLY_TARGET_BASELINE_PRESETS.map((preset) => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label}
+                </option>
+              ))}
+              <optgroup label="Last one year months">
+                {baselineMonths.map((availableBaselineMonth) => (
+                  <option key={availableBaselineMonth} value={availableBaselineMonth}>
+                    {formatMonthLabel(availableBaselineMonth)}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
         )}
       </div>
 
       {activeMode === "edit" ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-        <div className="rounded-md border bg-background/80 p-3">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
+        <div className="min-w-0 rounded-md border bg-background/80 p-3">
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-sm font-bold">
               {selectedChannelIds.length === channels.length && channels.length > 0 ? (
@@ -523,13 +575,13 @@ export function MonthlyTargetsDashboard({
           </div>
         </div>
 
-        <div className="rounded-md border bg-background/80 p-3">
+        <div className="min-w-0 rounded-md border bg-background/80 p-3">
           <div className="text-sm font-bold">Target Controls</div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            {MONTHLY_TARGET_METRICS.map((metric) => (
-              <div className="rounded-md border bg-muted/20 p-3" key={metric.key}>
+          <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-2">
+            {editableMetrics.map((metric) => (
+              <div className="min-w-0 rounded-md border bg-muted/20 p-3" key={metric.key}>
                 <div className="text-sm font-bold">{metric.label}</div>
-                <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(4.75rem,auto)] gap-2">
                   <input
                     value={bulkValues[metric.key]}
                     onChange={(event) =>
@@ -540,7 +592,11 @@ export function MonthlyTargetsDashboard({
                     inputMode="decimal"
                   />
                   <button
-                    className={buttonVariants({ variant: "secondary", size: "sm", className: "h-10 rounded-md" })}
+                    className={buttonVariants({
+                      variant: "secondary",
+                      size: "sm",
+                      className: "h-10 min-w-[4.75rem] rounded-md"
+                    })}
                     disabled={!canUseLoadedRows}
                     type="button"
                     onClick={() => applyBulkValue(metric.key)}
@@ -571,7 +627,7 @@ export function MonthlyTargetsDashboard({
       ) : null}
 
       {activeMode === "edit" ? (
-        <div className="rounded-md border bg-background/80">
+        <div className="min-w-0 rounded-md border bg-background/80">
         <div className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="grid gap-1">
             <div className="text-sm font-bold">Editable Channel Targets</div>
@@ -603,12 +659,12 @@ export function MonthlyTargetsDashboard({
             Loading targets
           </div>
         ) : hasRows ? (
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto">
             <table className="min-w-[82rem] text-left text-sm">
               <thead className="border-b bg-muted/30 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="w-72 whitespace-normal px-3 py-2">Channel</th>
-                  {MONTHLY_TARGET_METRICS.map((metric) => (
+                  {editableMetrics.map((metric) => (
                     <th className="whitespace-normal break-words px-3 py-2" key={metric.key}>
                       {metric.label}
                     </th>
@@ -621,10 +677,10 @@ export function MonthlyTargetsDashboard({
                     <td className="px-3 py-2 align-top">
                       <div className="font-bold text-foreground">{row.channelTitle}</div>
                       <div className="text-xs font-semibold text-muted-foreground">
-                        Baseline - {baselineMonth ? formatMonthLabel(baselineMonth) : "Select month"}
+                        Baseline - {formatBaselineSourceLabel(baselineSource, baselineMonth, row.baselineSourceMonths)}
                       </div>
                     </td>
-                    {MONTHLY_TARGET_METRICS.map((metric) => (
+                    {editableMetrics.map((metric) => (
                       <td className="px-3 py-2 align-top" key={metric.key}>
                         <input
                           value={row.target[metric.key]}
@@ -634,6 +690,9 @@ export function MonthlyTargetsDashboard({
                         />
                         <div className="mt-1 text-[11px] font-semibold text-muted-foreground">
                           Base {formatMetricValue(metric.key, row.baseline[metric.key])}
+                          {baselineSource === "highest-in-year" && row.baselineSourceMonths[metric.key] ? (
+                            <span> · {formatShortMonthLabel(row.baselineSourceMonths[metric.key])}</span>
+                          ) : null}
                         </div>
                       </td>
                     ))}
@@ -647,7 +706,13 @@ export function MonthlyTargetsDashboard({
         )}
         </div>
       ) : (
-        <TargetsStatusDashboard isLoading={isLoading} month={month} rows={rows} selectedCount={selectedChannelIds.length} />
+        <TargetsStatusDashboard
+          isLoading={isLoading}
+          metrics={statusMetrics}
+          month={month}
+          rows={rows}
+          selectedCount={selectedChannelIds.length}
+        />
       )}
 
       {message ? <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">{message}</p> : null}
@@ -678,11 +743,13 @@ function toEditableRow(row: MonthlyTargetDashboardRow): EditableTargetRow {
 
 function TargetsStatusDashboard({
   isLoading,
+  metrics,
   month,
   rows,
   selectedCount
 }: {
   isLoading: boolean;
+  metrics: readonly MonthlyTargetMetricDefinition[];
   month: string;
   rows: EditableTargetRow[];
   selectedCount: number;
@@ -705,10 +772,10 @@ function TargetsStatusDashboard({
   }
 
   const actualRangeLabel = formatActualRangeLabel(month);
-  const summaries = buildTargetStatusSummaries(rows);
-  const channelProgress = buildChannelProgressSummaries(rows);
+  const summaries = buildTargetStatusSummaries(rows, metrics);
+  const channelProgress = buildChannelProgressSummaries(rows, metrics);
   const rowsWithTargets = rows.filter((row) =>
-    MONTHLY_TARGET_METRICS.some((metric) => normalizeTargetValueOrNull(metric.key, row.target[metric.key]) !== null)
+    metrics.some((metric) => normalizeTargetValueOrNull(metric.key, row.target[metric.key]) !== null)
   );
 
   if (summaries.length === 0) {
@@ -750,7 +817,7 @@ function TargetsStatusDashboard({
       <div className="grid gap-3">
         <div className="text-sm font-black">Channel Breakdown</div>
         {rows.map((row) => (
-          <ChannelTargetStatusCard key={row.channelId} row={row} />
+          <ChannelTargetStatusCard key={row.channelId} metrics={metrics} row={row} />
         ))}
       </div>
     </div>
@@ -760,7 +827,7 @@ function TargetsStatusDashboard({
 type TargetStatusSummary = {
   actual: number;
   channelsWithTarget: number;
-  metric: (typeof MONTHLY_TARGET_METRICS)[number];
+  metric: MonthlyTargetMetricDefinition;
   percent: number | null;
   remaining: number;
   target: number;
@@ -772,8 +839,19 @@ type ChannelProgressSummary = {
   targetCount: number;
 };
 
-function buildTargetStatusSummaries(rows: EditableTargetRow[]): TargetStatusSummary[] {
-  return MONTHLY_TARGET_METRICS.flatMap((metric) => {
+type ChannelStatusMetricRow = {
+  actual: number;
+  metric: MonthlyTargetMetricDefinition;
+  percent: number | null;
+  sourceLabel?: string;
+  target: number;
+};
+
+function buildTargetStatusSummaries(
+  rows: EditableTargetRow[],
+  metrics: readonly MonthlyTargetMetricDefinition[]
+): TargetStatusSummary[] {
+  return metrics.flatMap((metric) => {
     let actual = 0;
     let target = 0;
     let channelsWithTarget = 0;
@@ -802,12 +880,15 @@ function buildTargetStatusSummaries(rows: EditableTargetRow[]): TargetStatusSumm
   });
 }
 
-function buildChannelProgressSummaries(rows: EditableTargetRow[]): ChannelProgressSummary[] {
+function buildChannelProgressSummaries(
+  rows: EditableTargetRow[],
+  metrics: readonly MonthlyTargetMetricDefinition[]
+): ChannelProgressSummary[] {
   return rows.flatMap((row) => {
     let percentTotal = 0;
     let targetCount = 0;
 
-    for (const metric of MONTHLY_TARGET_METRICS) {
+    for (const metric of metrics) {
       const targetValue = normalizeTargetValueOrNull(metric.key, row.target[metric.key]);
       if (targetValue === null) continue;
 
@@ -931,8 +1012,14 @@ function TargetStatusMetricCard({ summary }: { summary: TargetStatusSummary }) {
   );
 }
 
-function ChannelTargetStatusCard({ row }: { row: EditableTargetRow }) {
-  const metricRows = MONTHLY_TARGET_METRICS.flatMap((metric) => {
+function ChannelTargetStatusCard({
+  metrics,
+  row
+}: {
+  metrics: readonly MonthlyTargetMetricDefinition[];
+  row: EditableTargetRow;
+}) {
+  const metricRows: ChannelStatusMetricRow[] = metrics.flatMap((metric) => {
     const target = normalizeTargetValueOrNull(metric.key, row.target[metric.key]);
     if (target === null) return [];
 
@@ -942,6 +1029,7 @@ function ChannelTargetStatusCard({ row }: { row: EditableTargetRow }) {
         actual,
         metric,
         percent: calculateExportProgressPercent(actual, target),
+        sourceLabel: row.targetSourceLabels?.[metric.key],
         target
       }
     ];
@@ -960,10 +1048,15 @@ function ChannelTargetStatusCard({ row }: { row: EditableTargetRow }) {
         <p className="mt-3 text-sm text-muted-foreground">No targets set for this channel.</p>
       ) : (
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {metricRows.map(({ actual, metric, percent, target }) => (
+          {metricRows.map(({ actual, metric, percent, sourceLabel, target }) => (
             <div className="rounded-md border bg-muted/20 p-3" key={metric.key}>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-black">{metric.label}</p>
+                <div>
+                  <p className="text-xs font-black">{metric.label}</p>
+                  {sourceLabel ? (
+                    <p className="mt-1 text-[11px] font-bold text-muted-foreground">{sourceLabel}</p>
+                  ) : null}
+                </div>
                 <span className={cn("rounded-md px-2 py-1 text-[11px] font-black", getProgressBadgeClass(percent ?? 0))}>
                   {formatPercent(percent ?? 0)}
                 </span>
@@ -1033,14 +1126,16 @@ function getChannelPieColor(index: number) {
 }
 
 function buildTargetsExcelWorkbook({
+  metrics,
   month,
   rows
 }: {
+  metrics: readonly MonthlyTargetMetricDefinition[];
   month: string;
   rows: EditableTargetRow[];
 }) {
   const actualRangeLabel = formatActualRangeLabel(month);
-  const metricsWithTargets = MONTHLY_TARGET_METRICS.filter((metric) =>
+  const metricsWithTargets = metrics.filter((metric) =>
     rows.some((row) => normalizeTargetValue(metric.key, row.target[metric.key]) !== null)
   );
   const headers = ["Month", "Channel"];
@@ -1145,6 +1240,7 @@ function calculateExportProgressPercent(actual: number, target: number | null) {
 }
 
 function formatExportMetricValue(metric: MonthlyTargetMetric, value: number) {
+  if (metric === "estimatedRevenue") return formatExportDecimal(value, 2);
   return metric === "watchHours" ? formatExportDecimal(value, 1) : Math.round(value);
 }
 
@@ -1200,10 +1296,58 @@ function getMetricLabel(metric: MonthlyTargetMetric) {
 }
 
 function formatMetricValue(metric: MonthlyTargetMetric, value: number) {
+  if (metric === "estimatedRevenue") return formatCompactCurrency(value);
   if (metric === "watchHours") return `${formatCompactNumber(value)} hrs`;
   if (metric === "netSubscribers") return formatSignedNumber(value);
 
   return formatCompactNumber(value);
+}
+
+function formatCompactCurrency(value: number) {
+  return new Intl.NumberFormat("en", {
+    currency: "USD",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 1 : 2,
+    notation: Math.abs(value) >= 10_000 ? "compact" : "standard",
+    style: "currency"
+  }).format(value);
+}
+
+function formatBaselineSourceLabel(
+  source: MonthlyTargetBaselineSource,
+  baselineMonth: string,
+  sourceMonths?: Partial<Record<MonthlyTargetMetric, string | null>>
+) {
+  if (source === "last-three-months-average") return "Last 3 months average";
+  if (source === "highest-in-year") {
+    const monthSummary = formatBaselineMonthSummary(sourceMonths);
+    return monthSummary ? `Highest in last year (${monthSummary})` : "Highest in last year";
+  }
+  if (isMonthlyTargetBaselineMonthSource(source)) return formatMonthLabel(source);
+
+  return baselineMonth ? `Latest complete month (${formatMonthLabel(baselineMonth)})` : "Latest complete month";
+}
+
+function formatBaselineMonthSummary(sourceMonths?: Partial<Record<MonthlyTargetMetric, string | null>>) {
+  if (!sourceMonths) return "";
+
+  const uniqueMonths = Array.from(
+    new Set(MONTHLY_TARGET_METRICS.map((metric) => sourceMonths[metric.key]).filter(Boolean))
+  ) as string[];
+  if (uniqueMonths.length === 0) return "";
+  if (uniqueMonths.length <= 3) return uniqueMonths.map(formatShortMonthLabel).join(", ");
+
+  return `${uniqueMonths.slice(0, 3).map(formatShortMonthLabel).join(", ")} +${uniqueMonths.length - 3}`;
+}
+
+function formatShortMonthLabel(month: string | null | undefined) {
+  if (!month) return "";
+
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric"
+  }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
 }
 
 function formatCompactNumber(value: number) {

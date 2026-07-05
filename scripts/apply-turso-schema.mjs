@@ -51,6 +51,21 @@ async function ensureCompatibilityColumns() {
       table: "youtube_monthly_channel_targets",
       name: "long_videos_target",
       sql: "alter table youtube_monthly_channel_targets add column long_videos_target integer check (long_videos_target is null or long_videos_target >= 0)"
+    },
+    {
+      table: "youtube_monthly_channel_targets",
+      name: "estimated_revenue_target",
+      sql: "alter table youtube_monthly_channel_targets add column estimated_revenue_target real check (estimated_revenue_target is null or estimated_revenue_target >= 0)"
+    },
+    {
+      table: "youtube_daily_channel_targets",
+      name: "short_videos_target_period",
+      sql: "alter table youtube_daily_channel_targets add column short_videos_target_period text not null default 'daily' check (short_videos_target_period in ('daily', 'weekly'))"
+    },
+    {
+      table: "youtube_daily_channel_targets",
+      name: "long_videos_target_period",
+      sql: "alter table youtube_daily_channel_targets add column long_videos_target_period text not null default 'daily' check (long_videos_target_period in ('daily', 'weekly'))"
     }
   ];
 

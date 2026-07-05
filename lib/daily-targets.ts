@@ -1,9 +1,20 @@
 import { createDatabaseAdminClient } from "@/lib/database";
 import type { DailyMetricsVideoRow } from "@/lib/daily-metrics";
+import {
+  normalizePublishingTargetPeriod,
+  type PublishingTargetSetting
+} from "@/lib/publishing-targets";
+
+export {
+  derivePublishingTargetForDays,
+  formatPublishingTargetSourceLabel,
+  normalizePublishingTargetPeriod
+} from "@/lib/publishing-targets";
+export type { PublishingTargetPeriod, PublishingTargetSetting } from "@/lib/publishing-targets";
 
 export type DailyPublishingTargetValues = {
-  longVideos: number | null;
-  shortVideos: number | null;
+  longVideos: PublishingTargetSetting;
+  shortVideos: PublishingTargetSetting;
 };
 
 export type DailyPublishingTargetActuals = {
@@ -26,7 +37,9 @@ export type DailyPublishingTargetDashboardData = {
 
 export type SaveDailyPublishingTargetInputRow = {
   channelId: string;
+  longVideosPeriod?: unknown;
   longVideosTarget: unknown;
+  shortVideosPeriod?: unknown;
   shortVideosTarget: unknown;
 };
 
@@ -38,11 +51,21 @@ type DailyTargetChannel = {
 type TargetDbRow = {
   channel_id: string;
   long_videos_target: number | string | null;
+  long_videos_target_period?: string | null;
   short_videos_target: number | string | null;
+  short_videos_target_period?: string | null;
   created_by?: string | null;
 };
 
 const TARGET_SELECT_COLUMNS = [
+  "channel_id",
+  "short_videos_target",
+  "short_videos_target_period",
+  "long_videos_target",
+  "long_videos_target_period",
+  "created_by"
+].join(",");
+const LEGACY_TARGET_SELECT_COLUMNS = [
   "channel_id",
   "short_videos_target",
   "long_videos_target",
@@ -108,7 +131,9 @@ export async function saveDailyPublishingTargets({
     return {
       channel_id: row.channelId,
       short_videos_target: normalizeDailyPublishingTargetValue(row.shortVideosTarget),
+      short_videos_target_period: normalizePublishingTargetPeriod(row.shortVideosPeriod),
       long_videos_target: normalizeDailyPublishingTargetValue(row.longVideosTarget),
+      long_videos_target_period: normalizePublishingTargetPeriod(row.longVideosPeriod),
       created_by: existingRow?.created_by ?? username,
       updated_by: username,
       updated_at: savedAt
@@ -122,6 +147,18 @@ export async function saveDailyPublishingTargets({
     .upsert(payload, { onConflict: "channel_id" });
 
   if (error) throw error;
+}
+
+export async function getDailyPublishingTargetsByChannelId(channelIds: string[]) {
+  let targetRows: TargetDbRow[] = [];
+  try {
+    targetRows = await getDailyTargetRows(channelIds);
+  } catch (error) {
+    if (isMissingDailyTargetTableError(error)) return new Map<string, DailyPublishingTargetValues>();
+    throw error;
+  }
+
+  return new Map(targetRows.map((row) => [row.channel_id, mapTargetDbRow(row)]));
 }
 
 export function normalizeDailyPublishingTargetValue(value: unknown) {
@@ -140,27 +177,51 @@ async function getDailyTargetRows(channelIds: string[]) {
   if (channelIds.length === 0) return [];
 
   const db = createDatabaseAdminClient();
-  const { data, error } = await db
-    .from("youtube_daily_channel_targets")
-    .select(TARGET_SELECT_COLUMNS)
-    .in("channel_id", channelIds);
+  try {
+    const { data, error } = await db
+      .from("youtube_daily_channel_targets")
+      .select(TARGET_SELECT_COLUMNS)
+      .in("channel_id", channelIds);
 
-  if (error) throw error;
+    if (error) throw error;
+    return (data ?? []) as TargetDbRow[];
+  } catch (error) {
+    if (!isMissingDailyTargetPeriodColumnError(error)) throw error;
 
-  return (data ?? []) as TargetDbRow[];
+    const { data, error: legacyError } = await db
+      .from("youtube_daily_channel_targets")
+      .select(LEGACY_TARGET_SELECT_COLUMNS)
+      .in("channel_id", channelIds);
+
+    if (legacyError) throw legacyError;
+    return (data ?? []) as TargetDbRow[];
+  }
 }
 
 function mapTargetDbRow(row: TargetDbRow | undefined): DailyPublishingTargetValues {
   if (!row) {
     return {
-      longVideos: null,
-      shortVideos: null
+      longVideos: createEmptyTargetSetting(),
+      shortVideos: createEmptyTargetSetting()
     };
   }
 
   return {
-    longVideos: toNullableNumber(row.long_videos_target),
-    shortVideos: toNullableNumber(row.short_videos_target)
+    longVideos: {
+      period: normalizePublishingTargetPeriod(row.long_videos_target_period),
+      value: toNullableNumber(row.long_videos_target)
+    },
+    shortVideos: {
+      period: normalizePublishingTargetPeriod(row.short_videos_target_period),
+      value: toNullableNumber(row.short_videos_target)
+    }
+  };
+}
+
+function createEmptyTargetSetting(): PublishingTargetSetting {
+  return {
+    period: "daily",
+    value: null
   };
 }
 
@@ -193,6 +254,14 @@ function isMissingDailyTargetTableError(error: unknown) {
   return (
     message.includes("youtube_daily_channel_targets") &&
     (message.includes("does not exist") || message.includes("no such table"))
+  );
+}
+
+function isMissingDailyTargetPeriodColumnError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    (message.includes("short_videos_target_period") || message.includes("long_videos_target_period")) &&
+    (message.includes("does not exist") || message.includes("no such column") || message.includes("Could not find"))
   );
 }
 

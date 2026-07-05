@@ -6,11 +6,15 @@ import {
   getSessionAccount
 } from "@/lib/auth";
 import {
-  MONTHLY_TARGET_METRICS,
   TARGET_PERCENT_PRESETS,
+  getEditableMonthlyTargetMetrics,
   getEditableTargetMonths,
+  getTargetBaselineMonthOptionsFromAnchor,
+  getVisibleMonthlyTargetMetrics,
   isEditableTargetMonth,
-  normalizeEditableTargetMonth
+  normalizeMonthlyTargetBaselineSource,
+  normalizeEditableTargetMonth,
+  type MonthlyTargetBaselineSource
 } from "@/lib/monthly-target-metrics";
 import {
   getMonthlyTargetDashboardDataSafe,
@@ -23,6 +27,7 @@ import { listStoredYoutubeManagedChannels, type StoredYoutubeManagedChannel } fr
 export const dynamic = "force-dynamic";
 
 type SaveTargetsRequestBody = {
+  baselineSource?: unknown;
   month?: unknown;
   rows?: Array<{
     channelId?: unknown;
@@ -39,13 +44,18 @@ export async function GET(request: NextRequest) {
   const month = normalizeEditableTargetMonth(request.nextUrl.searchParams.get("month"));
   const selectedChannels = await resolveSelectedChannels(request, account);
   if ("error" in selectedChannels) return selectedChannels.error;
+  const canViewRevenue = canAccountViewRevenue(account);
 
-  const baselineMonth = await resolveMonthlyTargetBaselineMonth({
+  const baseline = await resolveBaselineSelection({
     channels: selectedChannels.channels,
-    month
+    month,
+    requestedBaselineSource: request.nextUrl.searchParams.get("baseline")
   });
   const dashboard = await getMonthlyTargetDashboardDataSafe({
-    baselineMonth,
+    baselineMonth: baseline.month,
+    baselineMonths: baseline.months,
+    baselineSource: baseline.source,
+    canViewRevenue,
     channels: selectedChannels.channels,
     month
   });
@@ -53,7 +63,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ...dashboard,
     availableMonths: getEditableTargetMonths(),
-    metrics: MONTHLY_TARGET_METRICS,
+    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue),
+    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue),
     percentPresets: TARGET_PERCENT_PRESETS
   });
 }
@@ -98,12 +109,16 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 
-  const baselineMonth = await resolveMonthlyTargetBaselineMonth({
+  const baseline = await resolveBaselineSelection({
     channels: selectedChannels.channels,
-    month
+    month,
+    requestedBaselineSource: typeof body.baselineSource === "string" ? body.baselineSource : null
   });
   const dashboard = await getMonthlyTargetDashboardDataSafe({
-    baselineMonth,
+    baselineMonth: baseline.month,
+    baselineMonths: baseline.months,
+    baselineSource: baseline.source,
+    canViewRevenue: true,
     channels: selectedChannels.channels,
     month
   });
@@ -111,9 +126,32 @@ export async function PUT(request: NextRequest) {
   return NextResponse.json({
     ...dashboard,
     availableMonths: getEditableTargetMonths(),
-    metrics: MONTHLY_TARGET_METRICS,
+    editableMetrics: getEditableMonthlyTargetMetrics(true),
+    metrics: getVisibleMonthlyTargetMetrics(true),
     percentPresets: TARGET_PERCENT_PRESETS
   });
+}
+
+async function resolveBaselineSelection({
+  channels,
+  month,
+  requestedBaselineSource
+}: {
+  channels: StoredYoutubeManagedChannel[];
+  month: string;
+  requestedBaselineSource: string | null;
+}): Promise<{ month: string; months: string[]; source: MonthlyTargetBaselineSource }> {
+  const baselineMonth = await resolveMonthlyTargetBaselineMonth({
+    channels,
+    month
+  });
+  const baselineMonths = getTargetBaselineMonthOptionsFromAnchor(baselineMonth);
+
+  return {
+    month: baselineMonth,
+    months: baselineMonths,
+    source: normalizeMonthlyTargetBaselineSource(requestedBaselineSource, baselineMonths)
+  };
 }
 
 async function resolveSelectedChannels(request: NextRequest, account: { channelIds: string[] | null }) {

@@ -8,7 +8,11 @@ import {
 } from "@/lib/login-sync-utils";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
 import { syncYoutubePublishedVideosForDate } from "@/lib/youtube-published-video-sync";
-import { normalizeReportDate } from "@/lib/youtube-performance-utils";
+import {
+  getMonthDateRange,
+  getPreviousMonth,
+  normalizeReportDate
+} from "@/lib/youtube-performance-utils";
 
 type LoginSyncChannel = {
   channelId: string;
@@ -20,6 +24,12 @@ type LoginSyncStateRow = {
   last_started_at: string | null;
   last_status: string;
   last_synced_at: string | null;
+};
+
+type LoginSyncAnalyticsRange = {
+  endDate: string;
+  forceSync: boolean;
+  startDate: string;
 };
 
 export type LoginYoutubeSyncState = {
@@ -54,8 +64,8 @@ export async function runLoginYoutubeSync(_account: ChannelPulseAccount) {
     return;
   }
 
-  const { endDate, startDate } = getLoginSyncDateRange();
-  const key = `${syncScope}|${startDate}|${endDate}`;
+  const syncRanges = getLoginSyncAnalyticsRanges();
+  const key = `${syncScope}|${syncRanges.map((range) => `${range.startDate}:${range.endDate}`).join("|")}`;
   const existingSync = inFlightLoginSyncs.get(key);
   if (existingSync) {
     await existingSync;
@@ -65,13 +75,15 @@ export async function runLoginYoutubeSync(_account: ChannelPulseAccount) {
   const syncPromise = (async () => {
     await markLoginSyncStarted(db, syncScope, channelIds);
     await syncRecentPublishedVideos(channels);
-    await ensureYoutubeAnalyticsRangeData({
-      channels,
-      endDate,
-      forceSync: true,
-      startDate,
-      storePeriodBreakdowns: true
-    });
+    for (const range of syncRanges) {
+      await ensureYoutubeAnalyticsRangeData({
+        channels,
+        endDate: range.endDate,
+        forceSync: range.forceSync,
+        startDate: range.startDate,
+        storePeriodBreakdowns: true
+      });
+    }
     await markLoginSyncSuccess(db, syncScope, channelIds);
   })()
     .then(() => undefined)
@@ -120,6 +132,24 @@ export function getLoginSyncDateRange(now = new Date()) {
     startDate: normalizeReportDate(start),
     endDate: normalizeReportDate(yesterday)
   };
+}
+
+export function getLoginSyncAnalyticsRanges(now = new Date()): LoginSyncAnalyticsRange[] {
+  const latestReadyRange = getLoginSyncDateRange(now);
+  const previousMonth = getPreviousMonth(latestReadyRange.startDate.slice(0, 7));
+  const previousMonthRange = getMonthDateRange(previousMonth, now);
+
+  return [
+    {
+      ...latestReadyRange,
+      forceSync: true
+    },
+    {
+      endDate: previousMonthRange.analyticsEndDate,
+      forceSync: false,
+      startDate: previousMonthRange.startDate
+    }
+  ];
 }
 
 export function getLoginTodayDate(now = new Date()) {

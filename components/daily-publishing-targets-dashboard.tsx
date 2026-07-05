@@ -4,7 +4,7 @@ import { LoaderCircle, Save, Search, Target } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { DailyPublishingTargetDashboardRow } from "@/lib/daily-targets";
+import type { DailyPublishingTargetDashboardRow, PublishingTargetPeriod } from "@/lib/daily-targets";
 import { cn } from "@/lib/utils";
 
 type DailyPublishingTargetsDashboardProps = {
@@ -17,9 +17,14 @@ type DailyPublishingTargetsDashboardProps = {
 
 type EditableDailyTargetRow = Omit<DailyPublishingTargetDashboardRow, "target"> & {
   target: {
-    longVideos: string;
-    shortVideos: string;
+    longVideos: EditablePublishingTargetSetting;
+    shortVideos: EditablePublishingTargetSetting;
   };
+};
+
+type EditablePublishingTargetSetting = {
+  period: PublishingTargetPeriod;
+  value: string;
 };
 
 export function DailyPublishingTargetsDashboard({
@@ -60,7 +65,35 @@ export function DailyPublishingTargetsDashboard({
               ...row,
               target: {
                 ...row.target,
-                [metric]: normalizedValue
+                [metric]: {
+                  ...row.target[metric],
+                  value: normalizedValue
+                }
+              }
+            }
+          : row
+      )
+    );
+    setMessage("");
+    setSaveError("");
+  };
+
+  const updateRowPeriod = (
+    channelId: string,
+    metric: keyof EditableDailyTargetRow["target"],
+    period: PublishingTargetPeriod
+  ) => {
+    setRows((currentRows) =>
+      currentRows.map((row) =>
+        row.channelId === channelId
+          ? {
+              ...row,
+              target: {
+                ...row.target,
+                [metric]: {
+                  ...row.target[metric],
+                  period
+                }
               }
             }
           : row
@@ -80,8 +113,10 @@ export function DailyPublishingTargetsDashboard({
         body: JSON.stringify({
           rows: rows.map((row) => ({
             channelId: row.channelId,
-            longVideosTarget: row.target.longVideos,
-            shortVideosTarget: row.target.shortVideos
+            longVideosPeriod: row.target.longVideos.period,
+            longVideosTarget: row.target.longVideos.value,
+            shortVideosPeriod: row.target.shortVideos.period,
+            shortVideosTarget: row.target.shortVideos.value
           }))
         }),
         headers: {
@@ -95,7 +130,7 @@ export function DailyPublishingTargetsDashboard({
         throw new Error(payload.error ?? "Unable to save daily targets.");
       }
 
-      setMessage(`Daily targets saved for ${rows.length} channel${rows.length === 1 ? "" : "s"}.`);
+      setMessage(`Publishing targets saved for ${rows.length} channel${rows.length === 1 ? "" : "s"}.`);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Unable to save daily targets.");
     } finally {
@@ -109,15 +144,15 @@ export function DailyPublishingTargetsDashboard({
         <div>
           <div className="flex items-center gap-2 text-base font-black">
             <Target className="size-4 text-primary" />
-            Daily Publishing Targets
+            Publishing Targets
           </div>
           <p className="mt-1 text-sm font-semibold text-muted-foreground">
-            Set one long-video and short-video target per channel. These targets apply every day.
+            Set long-video and short-video publishing targets per channel, with daily or weekly cadence.
           </p>
         </div>
         <Button className="h-10 gap-2 rounded-md md:self-start" disabled={!canSave} onClick={saveTargets} type="button">
           {isSaving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
-          {isSaving ? "Saving" : "Save Daily Targets"}
+          {isSaving ? "Saving" : "Save Publishing Targets"}
         </Button>
       </div>
 
@@ -140,8 +175,8 @@ export function DailyPublishingTargetsDashboard({
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <TargetStatCard label="Long target/day" value={formatNullableTotal(totals.longTarget, totals.longTargetCount)} />
-        <TargetStatCard label="Short target/day" value={formatNullableTotal(totals.shortTarget, totals.shortTargetCount)} />
+        <TargetStatCard label="Long targets" value={formatCadenceSummary(totals.longTargetCount, totals.longDailyCount, totals.longWeeklyCount)} />
+        <TargetStatCard label="Short targets" value={formatCadenceSummary(totals.shortTargetCount, totals.shortDailyCount, totals.shortWeeklyCount)} />
         <TargetStatCard label="Channels with targets" value={`${totals.channelsWithTargets}/${rows.length}`} />
         {showActuals ? (
           <TargetStatCard
@@ -173,8 +208,8 @@ export function DailyPublishingTargetsDashboard({
             <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 font-black">Channel</th>
-                <th className="px-3 py-2 text-right font-black">Long videos/day</th>
-                <th className="px-3 py-2 text-right font-black">Short videos/day</th>
+                <th className="px-3 py-2 text-right font-black">Long videos target</th>
+                <th className="px-3 py-2 text-right font-black">Short videos target</th>
                 {showActuals ? <th className="px-3 py-2 text-right font-black">Long actual</th> : null}
                 {showActuals ? <th className="px-3 py-2 text-right font-black">Short actual</th> : null}
               </tr>
@@ -185,21 +220,25 @@ export function DailyPublishingTargetsDashboard({
                   <td className="px-3 py-2 align-middle">
                     <div className="font-bold">{row.channelTitle}</div>
                   </td>
-                  <TargetInput
-                    label={`${row.channelTitle} long videos per day`}
-                    value={row.target.longVideos}
+                  <TargetCadenceInput
+                    label={`${row.channelTitle} long videos target`}
+                    period={row.target.longVideos.period}
+                    value={row.target.longVideos.value}
                     onChange={(value) => updateRowTarget(row.channelId, "longVideos", value)}
+                    onPeriodChange={(period) => updateRowPeriod(row.channelId, "longVideos", period)}
                   />
-                  <TargetInput
-                    label={`${row.channelTitle} short videos per day`}
-                    value={row.target.shortVideos}
+                  <TargetCadenceInput
+                    label={`${row.channelTitle} short videos target`}
+                    period={row.target.shortVideos.period}
+                    value={row.target.shortVideos.value}
                     onChange={(value) => updateRowTarget(row.channelId, "shortVideos", value)}
+                    onPeriodChange={(period) => updateRowPeriod(row.channelId, "shortVideos", period)}
                   />
                   {showActuals ? (
                     <td
                       className={cn(
                         "px-3 py-2 text-right align-middle font-black tabular-nums",
-                        getActualClass(row.actual.longVideos, row.target.longVideos)
+                        getActualClass(row.actual.longVideos, row.target.longVideos.value)
                       )}
                     >
                       {formatNumber(row.actual.longVideos)}
@@ -209,7 +248,7 @@ export function DailyPublishingTargetsDashboard({
                     <td
                       className={cn(
                         "px-3 py-2 text-right align-middle font-black tabular-nums",
-                        getActualClass(row.actual.shortVideos, row.target.shortVideos)
+                        getActualClass(row.actual.shortVideos, row.target.shortVideos.value)
                       )}
                     >
                       {formatNumber(row.actual.shortVideos)}
@@ -229,28 +268,61 @@ export function DailyPublishingTargetsDashboard({
   );
 }
 
-function TargetInput({
+function TargetCadenceInput({
   label,
   onChange,
+  onPeriodChange,
+  period,
   value
 }: {
   label: string;
   onChange: (value: string) => void;
+  onPeriodChange: (period: PublishingTargetPeriod) => void;
+  period: PublishingTargetPeriod;
   value: string;
 }) {
   return (
     <td className="px-3 py-2 text-right align-middle">
-      <input
-        aria-label={label}
-        className="h-10 w-28 rounded-md border bg-background px-3 text-right text-sm font-black tabular-nums text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
-        inputMode="numeric"
-        min={0}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Not set"
-        type="text"
-        value={value}
-      />
+      <div className="flex items-center justify-end gap-2">
+        <input
+          aria-label={label}
+          className="h-10 w-24 rounded-md border bg-background px-3 text-right text-sm font-black tabular-nums text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+          inputMode="numeric"
+          min={0}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Not set"
+          type="text"
+          value={value}
+        />
+        <div className="grid h-10 w-28 grid-cols-2 rounded-md border bg-background p-1">
+          <CadenceButton isSelected={period === "daily"} label="Day" onClick={() => onPeriodChange("daily")} />
+          <CadenceButton isSelected={period === "weekly"} label="Week" onClick={() => onPeriodChange("weekly")} />
+        </div>
+      </div>
     </td>
+  );
+}
+
+function CadenceButton({
+  isSelected,
+  label,
+  onClick
+}: {
+  isSelected: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "h-8 rounded-sm px-2 text-xs font-black text-muted-foreground transition-colors",
+        isSelected && "bg-primary text-primary-foreground shadow-sm"
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -267,8 +339,14 @@ function toEditableRows(rows: DailyPublishingTargetDashboardRow[]): EditableDail
   return rows.map((row) => ({
     ...row,
     target: {
-      longVideos: stringifyTarget(row.target.longVideos),
-      shortVideos: stringifyTarget(row.target.shortVideos)
+      longVideos: {
+        period: row.target.longVideos.period,
+        value: stringifyTarget(row.target.longVideos.value)
+      },
+      shortVideos: {
+        period: row.target.shortVideos.period,
+        value: stringifyTarget(row.target.shortVideos.value)
+      }
     }
   }));
 }
@@ -280,14 +358,24 @@ function stringifyTarget(value: number | null) {
 function getTotals(rows: EditableDailyTargetRow[]) {
   return rows.reduce(
     (totals, row) => {
-      const longTarget = parseTarget(row.target.longVideos);
-      const shortTarget = parseTarget(row.target.shortVideos);
+      const longTarget = parseTarget(row.target.longVideos.value);
+      const shortTarget = parseTarget(row.target.shortVideos.value);
 
-      if (longTarget !== null) totals.longTarget += longTarget;
-      if (longTarget !== null) totals.longTargetCount += 1;
+      if (longTarget !== null) {
+        totals.longTargetCount += 1;
+        if (row.target.longVideos.period === "weekly") {
+          totals.longWeeklyCount += 1;
+        } else {
+          totals.longDailyCount += 1;
+        }
+      }
       if (shortTarget !== null) {
-        totals.shortTarget += shortTarget;
         totals.shortTargetCount += 1;
+        if (row.target.shortVideos.period === "weekly") {
+          totals.shortWeeklyCount += 1;
+        } else {
+          totals.shortDailyCount += 1;
+        }
       }
       if (longTarget !== null || shortTarget !== null) totals.channelsWithTargets += 1;
       totals.longActual += row.actual.longVideos;
@@ -298,11 +386,13 @@ function getTotals(rows: EditableDailyTargetRow[]) {
     {
       channelsWithTargets: 0,
       longActual: 0,
-      longTarget: 0,
+      longDailyCount: 0,
       longTargetCount: 0,
+      longWeeklyCount: 0,
       shortActual: 0,
-      shortTarget: 0,
-      shortTargetCount: 0
+      shortDailyCount: 0,
+      shortTargetCount: 0,
+      shortWeeklyCount: 0
     }
   );
 }
@@ -319,8 +409,11 @@ function getActualClass(actual: number, targetValue: string) {
   return actual >= target ? "text-emerald-600 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300";
 }
 
-function formatNullableTotal(value: number, targetCount: number) {
-  return targetCount > 0 ? formatNumber(value) : "Not set";
+function formatCadenceSummary(targetCount: number, dailyCount: number, weeklyCount: number) {
+  if (targetCount === 0) return "Not set";
+  if (dailyCount > 0 && weeklyCount > 0) return `${targetCount} set`;
+  if (weeklyCount > 0) return `${weeklyCount} weekly`;
+  return `${dailyCount} daily`;
 }
 
 function formatNumber(value: number) {
