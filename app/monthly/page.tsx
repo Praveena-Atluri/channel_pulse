@@ -301,20 +301,20 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                   <section className="youtube-report-three-col grid gap-4 xl:grid-cols-3">
                     <VideoTable
                       title="Old Video Leaders"
-                      rows={toVideoTableRows(dashboard.oldVideoLeaders, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.oldVideoLeaders, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
                     <VideoTable
                       title="Least Viewed Recent Videos"
-                      rows={toVideoTableRows(dashboard.leastViewedRecentVideos, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.leastViewedRecentVideos, "views", { showPublishedDate: true })}
                       metric="views"
                       ascending
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
                     <VideoTable
                       title="Last Two Months Leaders"
-                      rows={toVideoTableRows(dashboard.recentVideoLeaders, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.recentVideoLeaders, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
@@ -323,13 +323,13 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                   <section className="youtube-report-two-col grid gap-4 xl:grid-cols-2">
                     <VideoTable
                       title="Most Viewed Videos This Month"
-                      rows={toVideoTableRows(dashboard.topViewedVideos, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.topViewedVideos, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
                     <VideoTable
                       title="Most Revenue Generating Videos"
-                      rows={toVideoTableRows(dashboard.topRevenueVideos, "revenue", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.topRevenueVideos, "revenue", { showPublishedDate: true })}
                       metric="revenue"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
@@ -340,13 +340,13 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                   <section className="youtube-report-two-col grid gap-4 xl:grid-cols-2">
                     <VideoTable
                       title="Old Video Leaders"
-                      rows={toVideoTableRows(dashboard.oldVideoLeaders, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.oldVideoLeaders, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
                     <VideoTable
                       title="Last Two Months Leaders"
-                      rows={toVideoTableRows(dashboard.recentVideoLeaders, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.recentVideoLeaders, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
@@ -355,14 +355,14 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                   <section className="youtube-report-two-col grid gap-4 xl:grid-cols-2">
                     <VideoTable
                       title="Least Viewed Recent Videos"
-                      rows={toVideoTableRows(dashboard.leastViewedRecentVideos, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.leastViewedRecentVideos, "views", { showPublishedDate: true })}
                       metric="views"
                       ascending
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
                     <VideoTable
                       title="Most Viewed Videos This Month"
-                      rows={toVideoTableRows(dashboard.topViewedVideos, "views", { showCohort: true })}
+                      rows={toVideoTableRows(dashboard.topViewedVideos, "views", { showPublishedDate: true })}
                       metric="views"
                       unavailableMessage={!dashboard.videoMetricsAvailable ? videoMetricsMessage : null}
                     />
@@ -681,8 +681,8 @@ function getSplitWidth(views: number, rows: Array<{ views: number }>) {
 }
 
 function contentTypeLabel(value: ContentTypeFilter) {
-  if (value === "short") return "Short form";
-  if (value === "long") return "Long form";
+  if (value === "short") return "Short";
+  if (value === "long") return "Long";
   if (value === "live") return "Live";
   if (value === "unknown") return "Unclassified / other";
   return "All formats";
@@ -768,15 +768,33 @@ function formatLastUpdatedLabel(value: string | null | undefined) {
 function toVideoTableRows(
   rows: VideoPerformanceRow[],
   metric: "views" | "revenue",
-  options: { showCohort?: boolean } = {}
+  options: { showPublishedDate?: boolean } = {}
 ) {
   return rows.map((row) => ({
     videoId: row.videoId,
     title: row.title,
     value: metric === "revenue" ? formatCurrency(row.estimatedRevenue) : formatCompactNumber(row.views),
     subvalue: `${formatCompactNumber(row.estimatedMinutesWatched / 60)} hrs`,
-    meta: [row.channelTitle, contentTypeLabel(row.contentType), ...(options.showCohort ? [row.cohort] : [])]
+    meta: [
+      row.channelTitle,
+      contentTypeLabel(row.contentType),
+      ...(options.showPublishedDate ? [formatPublishedDateLabel(row.publishedAt)] : [])
+    ]
   }));
+}
+
+function formatPublishedDateLabel(value: string | null) {
+  if (!value) return "Date unavailable";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Asia/Kolkata",
+    year: "2-digit"
+  }).format(date);
 }
 
 function calculatePlaybackCpm(totals: MetricTotals) {
