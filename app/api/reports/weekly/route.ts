@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   if ("error" in resolved) return resolved.error;
 
   try {
-    await ensureWeeklyPerformanceData(resolved);
+    await ensureWeeklyPerformanceData({ ...resolved, requireRevenue: true });
     const dashboard = await getWeeklyPerformanceDashboard(resolved);
     const rows = buildWeeklyReportRows(dashboard);
     const workbook = buildXlsxWorkbook({

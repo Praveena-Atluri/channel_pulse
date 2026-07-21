@@ -123,10 +123,12 @@ const WEEKLY_SYNC_WAIT_LIMIT_MS = 10_000;
 export async function ensureWeeklyPerformanceData({
   channels,
   endDate,
+  requireRevenue = false,
   startDate
 }: {
   channels: StoredYoutubeManagedChannel[];
   endDate: string;
+  requireRevenue?: boolean;
   startDate: string;
 }) {
   const selectedRange = { endDate, startDate };
@@ -136,6 +138,7 @@ export async function ensureWeeklyPerformanceData({
   const syncPromise = ensureYoutubeAnalyticsRangeData({
     channels,
     endDate,
+    requireRevenue,
     startDate: syncStartDate,
     ...WEEKLY_SYNC_OPTIONS
   })

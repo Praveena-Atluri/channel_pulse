@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const canViewRevenue = canAccountViewRevenue(account);
 
   try {
-    await ensureWeeklyPerformanceData(resolved);
+    await ensureWeeklyPerformanceData({ ...resolved, requireRevenue: canViewRevenue });
     const dashboard = await getWeeklyPerformanceDashboard(resolved);
     const visibleDashboard = canViewRevenue ? dashboard : sanitizeWeeklyPerformanceForViewer(dashboard);
     return NextResponse.json(visibleDashboard);

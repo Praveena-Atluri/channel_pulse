@@ -18,6 +18,7 @@ type BackfillOptions = {
   force: boolean;
   months: number;
   offsetMonths: number;
+  requireRevenue: boolean;
   startDate?: string;
 };
 
@@ -52,7 +53,15 @@ async function main() {
   console.log(`Range: ${range.startDate} to ${range.endDate}`);
   console.log(`Channels: ${channels.length}`);
   console.log(`Concurrency: ${options.concurrency}`);
-  console.log(`Mode: ${options.force ? "force sync" : "skip complete ranges"}`);
+  console.log(
+    `Mode: ${
+      options.force
+        ? "force sync"
+        : options.requireRevenue
+          ? "skip revenue-complete ranges"
+          : "skip complete ranges"
+    }`
+  );
 
   if (options.dryRun) {
     console.log("");
@@ -68,7 +77,7 @@ async function main() {
     const position = `${index + 1}/${channels.length}`;
     const label = `${channel.title} (${channel.channelId})`;
     console.log(`[${position}] Syncing ${label}`);
-    const result = await backfillChannel(channel, range.startDate, range.endDate, options.force);
+    const result = await backfillChannel(channel, range.startDate, range.endDate, options.force, options.requireRevenue);
 
     if (result.status === "synced") {
       console.log(
@@ -109,7 +118,8 @@ async function backfillChannel(
   channel: StoredYoutubeManagedChannel,
   startDate: string,
   endDate: string,
-  force: boolean
+  force: boolean,
+  requireRevenue: boolean
 ): Promise<BackfillResult> {
   const startedAt = Date.now();
 
@@ -118,6 +128,7 @@ async function backfillChannel(
       ? [{ channelId: channel.channelId, startDate, endDate }]
       : await getMissingYoutubeAnalyticsRanges({
           channels: [{ channelId: channel.channelId }],
+          requireRevenue,
           startDate,
           endDate
         });
@@ -147,6 +158,7 @@ async function backfillChannel(
 
     const missingAfterSync = await getIncompleteYoutubeAnalyticsChannelIds({
       channels: [{ channelId: channel.channelId }],
+      requireRevenue,
       startDate,
       endDate
     });
@@ -215,7 +227,8 @@ function parseArgs(args: string[]): BackfillOptions {
     dryRun: false,
     force: true,
     months: Number(process.env.BACKFILL_MONTHS ?? DEFAULT_MONTHS),
-    offsetMonths: Number(process.env.BACKFILL_OFFSET_MONTHS ?? 0)
+    offsetMonths: Number(process.env.BACKFILL_OFFSET_MONTHS ?? 0),
+    requireRevenue: false
   };
 
   for (const arg of args) {
@@ -223,6 +236,8 @@ function parseArgs(args: string[]): BackfillOptions {
       options.dryRun = true;
     } else if (arg === "--skip-complete") {
       options.force = false;
+    } else if (arg === "--require-revenue") {
+      options.requireRevenue = true;
     } else if (arg.startsWith("--start=")) {
       options.startDate = arg.slice("--start=".length);
     } else if (arg.startsWith("--end=")) {
