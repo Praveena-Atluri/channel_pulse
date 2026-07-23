@@ -12,6 +12,7 @@ import {
   Target
 } from "lucide-react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useState, type MouseEvent } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +37,13 @@ const dashboardLinks = [
     title: "Weekly Performance",
     description: "Review weekly channel performance, comparisons, strengths, and weaknesses.",
     Icon: BarChart3,
+    adminOnly: false
+  },
+  {
+    href: "/range",
+    title: "Date Range Analytics",
+    description: "Graph views, watch hours, subscribers, and revenue for selected channels and dates.",
+    Icon: CalendarDays,
     adminOnly: false
   },
   {
@@ -97,7 +105,7 @@ export function YoutubeDashboardLinks({ canViewReports = false }: { canViewRepor
         return (
           <Link
             key={href}
-            href={href}
+            href={href as Route}
             onClick={(event) => handleClick(event, href)}
             className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={isPending ? `Opening ${title}` : title}
