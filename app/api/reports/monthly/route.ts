@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
   type ChannelPulseAccount,
+  canAccountManageDashboard,
   canAccountViewRevenue,
   getAccountChannelAccess,
   getSessionAccount
@@ -11,11 +12,13 @@ import { ensureYoutubeAnalyticsRangeData } from "@/lib/youtube-auto-sync";
 import {
   CHANNEL_COMPARE_COLUMNS,
   isChannelCompareColumnId,
+  isChannelCompareRevenueColumnId,
   type ChannelCompareColumnId
 } from "@/lib/channel-compare-report";
 import {
   CHANNEL_SUMMARY_COLUMNS,
   isChannelSummaryColumnId,
+  isChannelSummaryRevenueColumnId,
   type ChannelSummaryColumnId
 } from "@/lib/channel-summary-report";
 import { createDatabaseAdminClient } from "@/lib/database";
@@ -50,24 +53,6 @@ const REPORT_TYPES = new Set<ReportType>([
   "channel-compare"
 ]);
 const DB_PAGE_SIZE = 1000;
-const CHANNEL_SUMMARY_REVENUE_COLUMN_IDS = new Set<ChannelSummaryColumnId>([
-  "revenue",
-  "estimated_ad_revenue",
-  "gross_revenue",
-  "rpm",
-  "playback_cpm",
-  "monetized_playbacks",
-  "ad_impressions",
-  "revenue_rank",
-  "rpm_rank"
-]);
-const CHANNEL_COMPARE_REVENUE_COLUMN_IDS = new Set<ChannelCompareColumnId>([
-  "estimated_revenue",
-  "rpm",
-  "playback_cpm",
-  "monetized_playbacks",
-  "ad_impressions"
-]);
 const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const REPORT_COLUMN_WIDTH = 16.86;
 
@@ -77,13 +62,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can download reports." }, { status: 403 });
   }
 
   const report = normalizeReportType(request.nextUrl.searchParams.get("report"));
   if (!report) {
     return NextResponse.json({ error: "Select a valid report type." }, { status: 400 });
+  }
+  if (
+    !canAccountViewRevenue(account) &&
+    report !== "channel-summary" &&
+    report !== "channel-compare"
+  ) {
+    return NextResponse.json(
+      { error: "This report includes revenue and is unavailable for this account." },
+      { status: 403 }
+    );
   }
 
   if (report === "channel-summary") {
@@ -153,6 +148,12 @@ async function buildChannelSummaryResponse(request: NextRequest, account: Channe
   if (selectedColumnIds.length !== requestedColumnIds.length || selectedColumnIds.length === 0) {
     return NextResponse.json({ error: "Select valid report columns." }, { status: 400 });
   }
+  if (!canAccountViewRevenue(account) && selectedColumnIds.some(isChannelSummaryRevenueColumnId)) {
+    return NextResponse.json(
+      { error: "Revenue report columns are unavailable for this account." },
+      { status: 403 }
+    );
+  }
 
   const allChannels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
   const channelsById = new Map(allChannels.map((channel) => [channel.channelId, channel]));
@@ -212,6 +213,12 @@ async function buildChannelCompareResponse(request: NextRequest, account: Channe
   const selectedColumnIds = requestedColumnIds.filter(isChannelCompareColumnId);
   if (selectedColumnIds.length !== requestedColumnIds.length || selectedColumnIds.length === 0) {
     return NextResponse.json({ error: "Select valid report columns." }, { status: 400 });
+  }
+  if (!canAccountViewRevenue(account) && selectedColumnIds.some(isChannelCompareRevenueColumnId)) {
+    return NextResponse.json(
+      { error: "Revenue report columns are unavailable for this account." },
+      { status: 403 }
+    );
   }
 
   const allChannels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
@@ -582,11 +589,11 @@ async function hasStoredRevenueSignal(channels: StoredYoutubeManagedChannel[], s
 }
 
 function hasChannelSummaryRevenueColumns(columnIds: ChannelSummaryColumnId[]) {
-  return columnIds.some((columnId) => CHANNEL_SUMMARY_REVENUE_COLUMN_IDS.has(columnId));
+  return columnIds.some(isChannelSummaryRevenueColumnId);
 }
 
 function hasChannelCompareRevenueColumns(columnIds: ChannelCompareColumnId[]) {
-  return columnIds.some((columnId) => CHANNEL_COMPARE_REVENUE_COLUMN_IDS.has(columnId));
+  return columnIds.some(isChannelCompareRevenueColumnId);
 }
 
 async function getChannelMetricRows(

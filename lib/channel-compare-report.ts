@@ -39,7 +39,18 @@ export const CHANNEL_COMPARE_COLUMNS: ChannelCompareColumn[] = [
 ];
 
 export const CHANNEL_COMPARE_COLUMN_IDS = CHANNEL_COMPARE_COLUMNS.map((column) => column.id);
+export const CHANNEL_COMPARE_REVENUE_COLUMN_IDS: ChannelCompareColumnId[] = [
+  "estimated_revenue",
+  "rpm",
+  "playback_cpm",
+  "monetized_playbacks",
+  "ad_impressions"
+];
 
 export function isChannelCompareColumnId(value: string): value is ChannelCompareColumnId {
   return CHANNEL_COMPARE_COLUMN_IDS.includes(value as ChannelCompareColumnId);
+}
+
+export function isChannelCompareRevenueColumnId(value: ChannelCompareColumnId) {
+  return CHANNEL_COMPARE_REVENUE_COLUMN_IDS.includes(value);
 }

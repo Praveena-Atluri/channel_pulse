@@ -1,7 +1,7 @@
 export const CHANNEL_PULSE_SESSION_COOKIE = "channel_pulse_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
-export type AccountRole = "admin" | "user";
+export type AccountRole = "admin" | "admin_no_revenue" | "user";
 
 export type ChannelPulseAccount = {
   username: string;
@@ -50,6 +50,16 @@ export function getAccounts() {
     });
   }
 
+  const restrictedAdminPassword = process.env.DASHBOARD_RESTRICTED_ADMIN_PASSWORD ?? "";
+  if (restrictedAdminPassword) {
+    accounts.push({
+      username: process.env.DASHBOARD_RESTRICTED_ADMIN_USER?.trim() || "admin",
+      password: restrictedAdminPassword,
+      role: "admin_no_revenue",
+      channelIds: null
+    });
+  }
+
   for (const account of getConfiguredAccounts()) {
     if (!accounts.some((candidate) => candidate.username === account.username)) {
       accounts.push(account);
@@ -77,6 +87,10 @@ export function getAccountByUsername(username: string) {
 
 export function canAccountViewRevenue(account: ChannelPulseAccount) {
   return account.role === "admin";
+}
+
+export function canAccountManageDashboard(account: ChannelPulseAccount) {
+  return account.role === "admin" || account.role === "admin_no_revenue";
 }
 
 export function getAccountChannelAccess(account: ChannelPulseAccount): ChannelAccess {
@@ -159,7 +173,10 @@ function getConfiguredAccounts() {
   for (const rawAccount of rawAccounts) {
     const username = typeof rawAccount.username === "string" ? rawAccount.username.trim() : "";
     const password = typeof rawAccount.password === "string" ? rawAccount.password : "";
-    const role: AccountRole = rawAccount.role === "admin" ? "admin" : "user";
+    const role: AccountRole =
+      rawAccount.role === "admin" || rawAccount.role === "admin_no_revenue"
+        ? rawAccount.role
+        : "user";
 
     if (!username || !password) {
       continue;
@@ -190,7 +207,7 @@ function parseConfiguredAccounts(): RawConfiguredAccount[] {
 }
 
 function normalizeChannelIds(value: unknown, role: AccountRole) {
-  if (value === "all" || (value === undefined && role === "admin")) {
+  if (value === "all" || (value === undefined && role !== "user")) {
     return null;
   }
 

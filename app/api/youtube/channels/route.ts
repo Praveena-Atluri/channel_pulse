@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
-  canAccountViewRevenue,
+  canAccountManageDashboard,
   getSessionAccount
 } from "@/lib/auth";
 import {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can refresh the channel catalog." }, { status: 403 });
   }
 

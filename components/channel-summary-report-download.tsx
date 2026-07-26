@@ -9,11 +9,13 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   CHANNEL_SUMMARY_COLUMN_IDS,
   CHANNEL_SUMMARY_COLUMNS,
+  isChannelSummaryRevenueColumnId,
   type ChannelSummaryColumnId
 } from "@/lib/channel-summary-report";
 import type { ManagedChannel } from "@/lib/youtube-performance";
 
 type ChannelSummaryReportDownloadProps = {
+  canViewRevenue: boolean;
   channels: ManagedChannel[];
   defaultStartDate: string;
   defaultEndDate: string;
@@ -21,6 +23,7 @@ type ChannelSummaryReportDownloadProps = {
 };
 
 export function ChannelSummaryReportDownload({
+  canViewRevenue,
   channels,
   defaultStartDate,
   defaultEndDate,
@@ -34,6 +37,13 @@ export function ChannelSummaryReportDownload({
 
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
   const selectedColumnSet = useMemo(() => new Set(selectedColumnIds), [selectedColumnIds]);
+  const visibleColumns = useMemo(
+    () =>
+      canViewRevenue
+        ? CHANNEL_SUMMARY_COLUMNS
+        : CHANNEL_SUMMARY_COLUMNS.filter((column) => !isChannelSummaryRevenueColumnId(column.id)),
+    [canViewRevenue]
+  );
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();
     if (!query) return channels;
@@ -118,12 +128,18 @@ export function ChannelSummaryReportDownload({
         <SelectorPanel
           title="Report Columns"
           count={selectedColumnIds.length}
-          total={CHANNEL_SUMMARY_COLUMNS.length}
-          onSelectAll={() => setSelectedColumnIds([...CHANNEL_SUMMARY_COLUMN_IDS])}
+          total={visibleColumns.length}
+          onSelectAll={() =>
+            setSelectedColumnIds(
+              canViewRevenue
+                ? [...CHANNEL_SUMMARY_COLUMN_IDS]
+                : visibleColumns.map((column) => column.id)
+            )
+          }
           onClear={() => setSelectedColumnIds([])}
         >
           <div className="max-h-80 overflow-auto rounded-md border">
-            {CHANNEL_SUMMARY_COLUMNS.map((column) => (
+            {visibleColumns.map((column) => (
               <label
                 className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm font-semibold last:border-b-0 hover:bg-muted/50"
                 key={column.id}

@@ -111,11 +111,21 @@ The dashboard and YouTube API routes are protected by the Channel Pulse login pa
 
 `DASHBOARD_BASIC_USER` and `DASHBOARD_BASIC_PASSWORD` create the admin account. Admins can view revenue details and refresh the channel catalog.
 
-Add non-admin accounts with `CHANNEL_PULSE_ACCOUNTS`:
+Create a second admin with every management capability except revenue access:
+
+```bash
+DASHBOARD_RESTRICTED_ADMIN_USER=admin
+DASHBOARD_RESTRICTED_ADMIN_PASSWORD=strong-password
+```
+
+This account can manage targets, refresh channels, and download reports, but revenue metrics and revenue target fields are removed from dashboards and report choices. Revenue report columns are also rejected by the API.
+
+Add other accounts with `CHANNEL_PULSE_ACCOUNTS`:
 
 ```bash
 CHANNEL_PULSE_ACCOUNTS='[
   {"username":"viewer","password":"strong-password","role":"user","channels":"all"},
+  {"username":"admin","password":"strong-password","role":"admin_no_revenue","channels":"all"},
   {"username":"channel-example","password":"strong-password","role":"user","channels":["UCXjhJbviBl0M4JAC3cxDXqA"]}
 ]'
 ```

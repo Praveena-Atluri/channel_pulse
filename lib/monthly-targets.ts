@@ -228,10 +228,12 @@ export async function resolveMonthlyTargetBaselineMonth({
 }
 
 export async function saveMonthlyTargets({
+  canEditRevenue = true,
   month,
   rows,
   username
 }: {
+  canEditRevenue?: boolean;
   month: string;
   rows: SaveMonthlyTargetInputRow[];
   username: string;
@@ -254,7 +256,9 @@ export async function saveMonthlyTargets({
       long_videos_target: normalizedTargets.longVideosToPublish,
       watch_hours_target: normalizedTargets.watchHours,
       net_subscribers_target: normalizedTargets.netSubscribers,
-      estimated_revenue_target: normalizedTargets.estimatedRevenue,
+      ...(canEditRevenue
+        ? { estimated_revenue_target: normalizedTargets.estimatedRevenue }
+        : {}),
       created_by: existingRow?.created_by ?? username,
       updated_by: username,
       updated_at: savedAt

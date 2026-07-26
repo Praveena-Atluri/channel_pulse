@@ -9,11 +9,13 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   CHANNEL_COMPARE_COLUMN_IDS,
   CHANNEL_COMPARE_COLUMNS,
+  isChannelCompareRevenueColumnId,
   type ChannelCompareColumnId
 } from "@/lib/channel-compare-report";
 import type { ManagedChannel } from "@/lib/youtube-performance";
 
 type ChannelCompareReportDownloadProps = {
+  canViewRevenue: boolean;
   channels: ManagedChannel[];
   defaultPrimaryStartDate: string;
   defaultPrimaryEndDate: string;
@@ -23,6 +25,7 @@ type ChannelCompareReportDownloadProps = {
 };
 
 export function ChannelCompareReportDownload({
+  canViewRevenue,
   channels,
   defaultPrimaryStartDate,
   defaultPrimaryEndDate,
@@ -40,6 +43,13 @@ export function ChannelCompareReportDownload({
 
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
   const selectedColumnSet = useMemo(() => new Set(selectedColumnIds), [selectedColumnIds]);
+  const visibleColumns = useMemo(
+    () =>
+      canViewRevenue
+        ? CHANNEL_COMPARE_COLUMNS
+        : CHANNEL_COMPARE_COLUMNS.filter((column) => !isChannelCompareRevenueColumnId(column.id)),
+    [canViewRevenue]
+  );
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();
     if (!query) return channels;
@@ -129,12 +139,18 @@ export function ChannelCompareReportDownload({
         <SelectorPanel
           title="Report Columns"
           count={selectedColumnIds.length}
-          total={CHANNEL_COMPARE_COLUMNS.length}
-          onSelectAll={() => setSelectedColumnIds([...CHANNEL_COMPARE_COLUMN_IDS])}
+          total={visibleColumns.length}
+          onSelectAll={() =>
+            setSelectedColumnIds(
+              canViewRevenue
+                ? [...CHANNEL_COMPARE_COLUMN_IDS]
+                : visibleColumns.map((column) => column.id)
+            )
+          }
           onClear={() => setSelectedColumnIds([])}
         >
           <div className="max-h-80 overflow-auto rounded-md border">
-            {CHANNEL_COMPARE_COLUMNS.map((column) => (
+            {visibleColumns.map((column) => (
               <label
                 className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm font-semibold last:border-b-0 hover:bg-muted/50"
                 key={column.id}

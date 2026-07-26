@@ -8,7 +8,7 @@ import { ReportDownloadPicker } from "@/components/report-download-picker";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { canAccountViewRevenue, getAccountChannelAccess } from "@/lib/auth";
+import { canAccountManageDashboard, canAccountViewRevenue, getAccountChannelAccess } from "@/lib/auth";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { getMonthDateRange, getPreviousMonth } from "@/lib/youtube-performance-utils";
 import { getYoutubePerformanceDashboard, normalizeYoutubePerformanceFilters } from "@/lib/youtube-performance";
@@ -27,7 +27,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const params = await searchParams;
   const account = await requireCurrentAccount("/reports");
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     redirect("/");
   }
 
@@ -70,6 +70,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </header>
 
         <ReportDownloadPicker
+          canViewRevenue={canAccountViewRevenue(account)}
           channels={dashboard.channels}
           defaultComparisonEndDate={defaultComparisonDateRange.analyticsEndDate}
           defaultComparisonStartDate={defaultComparisonDateRange.startDate}

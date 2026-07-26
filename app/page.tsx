@@ -5,7 +5,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { YoutubeDashboardLinks } from "@/components/youtube-dashboard-links";
 import { LogoutButton } from "@/components/logout-button";
 import { Badge } from "@/components/ui/badge";
-import { canAccountViewRevenue } from "@/lib/auth";
+import { canAccountManageDashboard } from "@/lib/auth";
 import { requireCurrentAccount } from "@/lib/server-auth";
 
 type HomePageProps = {
@@ -54,7 +54,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
         </header>
 
-        <YoutubeDashboardLinks canViewReports={canAccountViewRevenue(account)} />
+        <YoutubeDashboardLinks canViewReports={canAccountManageDashboard(account)} />
       </div>
     </main>
   );

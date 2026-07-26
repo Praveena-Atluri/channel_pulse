@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
-  canAccountViewRevenue,
+  canAccountManageDashboard,
   getSessionAccount
 } from "@/lib/auth";
 import {
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can view daily publishing targets." }, { status: 403 });
   }
 
@@ -52,7 +52,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can update daily publishing targets." }, { status: 403 });
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
+  canAccountManageDashboard,
   canAccountViewRevenue,
   getSessionAccount
 } from "@/lib/auth";
@@ -75,9 +76,10 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can update targets." }, { status: 403 });
   }
+  const canViewRevenue = canAccountViewRevenue(account);
 
   let body: SaveTargetsRequestBody = {};
   try {
@@ -91,7 +93,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Select the current or upcoming month." }, { status: 400 });
   }
 
-  const rows = normalizeSaveRows(body.rows);
+  const rows = normalizeSaveRows(body.rows, canViewRevenue);
   if (rows.length === 0) {
     return NextResponse.json({ error: "Select at least one channel target to save." }, { status: 400 });
   }
@@ -101,6 +103,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     await saveMonthlyTargets({
+      canEditRevenue: canViewRevenue,
       month,
       rows,
       username: account.username
@@ -118,7 +121,7 @@ export async function PUT(request: NextRequest) {
     baselineMonth: baseline.month,
     baselineMonths: baseline.months,
     baselineSource: baseline.source,
-    canViewRevenue: true,
+    canViewRevenue,
     channels: selectedChannels.channels,
     month
   });
@@ -126,8 +129,8 @@ export async function PUT(request: NextRequest) {
   return NextResponse.json({
     ...dashboard,
     availableMonths: getEditableTargetMonths(),
-    editableMetrics: getEditableMonthlyTargetMetrics(true),
-    metrics: getVisibleMonthlyTargetMetrics(true),
+    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue),
+    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue),
     percentPresets: TARGET_PERCENT_PRESETS
   });
 }
@@ -177,7 +180,10 @@ async function resolveChannelsForIds(channelIds: string[], account: { channelIds
   return { channels };
 }
 
-function normalizeSaveRows(rows: SaveTargetsRequestBody["rows"]): SaveMonthlyTargetInputRow[] {
+function normalizeSaveRows(
+  rows: SaveTargetsRequestBody["rows"],
+  canEditRevenue: boolean
+): SaveMonthlyTargetInputRow[] {
   if (!Array.isArray(rows)) return [];
 
   const seenChannelIds = new Set<string>();
@@ -190,11 +196,21 @@ function normalizeSaveRows(rows: SaveTargetsRequestBody["rows"]): SaveMonthlyTar
     seenChannelIds.add(channelId);
     normalizedRows.push({
       channelId,
-      targets: row.targets ?? {}
+      targets: sanitizeTargetInput(row.targets, canEditRevenue)
     });
   }
 
   return normalizedRows;
+}
+
+function sanitizeTargetInput(
+  targets: SaveMonthlyTargetInputRow["targets"] | undefined,
+  canEditRevenue: boolean
+): SaveMonthlyTargetInputRow["targets"] {
+  if (!targets || canEditRevenue) return targets ?? {};
+
+  const { estimatedRevenue: _estimatedRevenue, ...visibleTargets } = targets;
+  return visibleTargets;
 }
 
 function filterChannelsForAccount<T extends { channelId: string }>(

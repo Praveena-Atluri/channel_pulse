@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   CHANNEL_PULSE_SESSION_COOKIE,
+  canAccountManageDashboard,
   canAccountViewRevenue,
   getSessionAccount
 } from "@/lib/auth";
@@ -23,17 +24,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     return NextResponse.json({ error: "Only admins can download weekly reports." }, { status: 403 });
   }
 
   const resolved = await resolveWeeklyRequest(request, account);
   if ("error" in resolved) return resolved.error;
+  const canViewRevenue = canAccountViewRevenue(account);
 
   try {
-    await ensureWeeklyPerformanceData({ ...resolved, requireRevenue: true });
+    await ensureWeeklyPerformanceData({ ...resolved, requireRevenue: canViewRevenue });
     const dashboard = await getWeeklyPerformanceDashboard(resolved);
-    const rows = buildWeeklyReportRows(dashboard);
+    const rows = buildWeeklyReportRows(dashboard, { includeRevenue: canViewRevenue });
     const workbook = buildXlsxWorkbook({
       columnWidth: 22,
       rows,

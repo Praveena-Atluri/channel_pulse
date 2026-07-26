@@ -7,7 +7,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { canAccountViewRevenue } from "@/lib/auth";
+import { canAccountManageDashboard, canAccountViewRevenue } from "@/lib/auth";
 import { getEditableTargetMonths } from "@/lib/monthly-target-metrics";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function TargetsPage() {
   const account = await requireCurrentAccount("/targets");
-  const canEditTargets = canAccountViewRevenue(account);
+  const canEditTargets = canAccountManageDashboard(account);
 
   const channels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
   const availableMonths = getEditableTargetMonths();
@@ -60,6 +60,7 @@ export default async function TargetsPage() {
           <MonthlyTargetsDashboard
             availableMonths={availableMonths}
             canEditTargets={canEditTargets}
+            canViewRevenue={canAccountViewRevenue(account)}
             channels={channels}
             defaultMonth={availableMonths[0]}
           />

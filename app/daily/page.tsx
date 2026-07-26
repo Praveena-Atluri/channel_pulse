@@ -23,6 +23,7 @@ import {
   getDailyPublishingTargetDashboardDataSafe,
   type DailyPublishingTargetDashboardRow
 } from "@/lib/daily-targets";
+import { canAccountManageDashboard } from "@/lib/auth";
 import { getLatestLoginYoutubeSyncState } from "@/lib/login-youtube-sync";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
@@ -75,7 +76,7 @@ export default async function DailyMetricsPage({ searchParams }: DailyMetricsPag
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-black">Daily Publishing</h1>
                 <Badge variant="secondary" className="rounded-md">
-                  {account.role === "admin" ? "Admin" : "Viewer"}
+                  {canAccountManageDashboard(account) ? "Admin" : "Viewer"}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">Published videos categorized as long or short.</p>

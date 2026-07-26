@@ -24,8 +24,16 @@ import { YoutubeVideoTable } from "@/components/youtube-video-table";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { canAccountViewRevenue, getAccountChannelAccess, isAuthConfigured } from "@/lib/auth";
-import { CHANNEL_COMPARE_COLUMN_IDS } from "@/lib/channel-compare-report";
+import {
+  canAccountManageDashboard,
+  canAccountViewRevenue,
+  getAccountChannelAccess,
+  isAuthConfigured
+} from "@/lib/auth";
+import {
+  CHANNEL_COMPARE_COLUMN_IDS,
+  isChannelCompareRevenueColumnId
+} from "@/lib/channel-compare-report";
 import { isLoginSyncFresh } from "@/lib/login-sync-utils";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { ensureYoutubeAnalyticsRangeData, getIncompleteYoutubeAnalyticsChannelIds } from "@/lib/youtube-auto-sync";
@@ -70,6 +78,7 @@ const ANALYTICS_RECENCY_WARNING_DAYS = 3;
 export default async function YoutubeComparisonPage({ searchParams }: YoutubeComparisonPageProps) {
   const params = await searchParams;
   const account = await requireCurrentAccount("/compare");
+  const canManageDashboard = canAccountManageDashboard(account);
   const canViewRevenue = canAccountViewRevenue(account);
   const filters = normalizeYoutubeComparisonFilters(params);
   let dashboard = await getYoutubeComparisonDashboard(filters, getAccountChannelAccess(account));
@@ -112,6 +121,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
   const channelLabel = dashboard.filters.channelId === "all" ? "All channels" : selectedChannel?.title ?? "Selected channel";
   const reportChannels = getDashboardSyncChannels(dashboard.filters.channelId, dashboard.channels);
   const compareReportHref = buildCompareReportHref({
+    canViewRevenue,
     channels: reportChannels,
     comparisonEndDate: dashboard.filters.comparisonEndDate,
     comparisonStartDate: dashboard.filters.comparisonStartDate,
@@ -163,7 +173,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
           </div>
 
           <div className="youtube-print-hidden flex items-center gap-2">
-            {canViewRevenue ? (
+            {canManageDashboard ? (
               <ReportDownloadButton
                 disabled={!dashboard.schemaReady || !cmsConfigured || reportChannels.length === 0}
                 href={compareReportHref}
@@ -222,7 +232,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
 
                 <div className="grid gap-3 md:grid-cols-[minmax(18rem,1.5fr)_minmax(12rem,0.8fr)_auto]">
                   <YoutubeChannelSelect
-                    canRefreshChannels={account.role === "admin"}
+                    canRefreshChannels={canAccountManageDashboard(account)}
                     channels={dashboard.channels}
                     disabled={!dashboard.schemaReady || !cmsConfigured}
                     includeAllOption
@@ -1091,12 +1101,14 @@ function getDashboardSyncChannels(channelId: string, channels: Array<{ channelId
 }
 
 function buildCompareReportHref({
+  canViewRevenue,
   channels,
   comparisonEndDate,
   comparisonStartDate,
   primaryEndDate,
   primaryStartDate
 }: {
+  canViewRevenue: boolean;
   channels: Array<{ channelId: string }>;
   comparisonEndDate: string;
   comparisonStartDate: string;
@@ -1115,7 +1127,9 @@ function buildCompareReportHref({
     query.append("channel", channel.channelId);
   }
 
-  for (const columnId of CHANNEL_COMPARE_COLUMN_IDS) {
+  for (const columnId of CHANNEL_COMPARE_COLUMN_IDS.filter(
+    (columnId) => canViewRevenue || !isChannelCompareRevenueColumnId(columnId)
+  )) {
     query.append("column", columnId);
   }
 

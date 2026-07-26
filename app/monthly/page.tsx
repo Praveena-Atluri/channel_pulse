@@ -26,7 +26,12 @@ import { YoutubeVideoTable } from "@/components/youtube-video-table";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { canAccountViewRevenue, getAccountChannelAccess, isAuthConfigured } from "@/lib/auth";
+import {
+  canAccountManageDashboard,
+  canAccountViewRevenue,
+  getAccountChannelAccess,
+  isAuthConfigured
+} from "@/lib/auth";
 import {
   getTargetBaselineMonth,
   getVisibleMonthlyTargetMetrics,
@@ -174,7 +179,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
             </FilterSelect>
 
             <YoutubeChannelSelect
-              canRefreshChannels={account.role === "admin"}
+              canRefreshChannels={canAccountManageDashboard(account)}
               channels={dashboard.channels}
               disabled={!dashboard.schemaReady || !cmsConfigured}
               includeAllOption

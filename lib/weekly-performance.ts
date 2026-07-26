@@ -225,48 +225,79 @@ export async function getWeeklyPerformanceDashboard({
   };
 }
 
-export function buildWeeklyReportRows(data: WeeklyPerformanceDashboardData) {
+export function buildWeeklyReportRows(
+  data: WeeklyPerformanceDashboardData,
+  { includeRevenue = true }: { includeRevenue?: boolean } = {}
+) {
   const rows: Array<Array<string | number>> = [
     ["Weekly Performance", formatDateRange(data.selectedRange.startDate, data.selectedRange.endDate)],
     ["Previous Week", formatDateRange(data.previousWeekRange.startDate, data.previousWeekRange.endDate)],
     [],
-    [
-      "Channel",
-      "Views",
-      "Watch Hours",
-      "Net Subscribers",
-      "Estimated Revenue",
-      "RPM",
-      "Playback CPM",
-      "Ad Impressions",
-      "Long Videos Published",
-      "Short Videos Published",
-      "CTR",
-      "Views WoW %",
-      "Revenue WoW %",
-      "Strengths",
-      "Weaknesses"
-    ]
+    includeRevenue
+      ? [
+          "Channel",
+          "Views",
+          "Watch Hours",
+          "Net Subscribers",
+          "Estimated Revenue",
+          "RPM",
+          "Playback CPM",
+          "Ad Impressions",
+          "Long Videos Published",
+          "Short Videos Published",
+          "CTR",
+          "Views WoW %",
+          "Revenue WoW %",
+          "Strengths",
+          "Weaknesses"
+        ]
+      : [
+          "Channel",
+          "Views",
+          "Watch Hours",
+          "Net Subscribers",
+          "Long Videos Published",
+          "Short Videos Published",
+          "CTR",
+          "Views WoW %",
+          "Strengths",
+          "Weaknesses"
+        ]
   ];
 
   for (const row of data.rows) {
-    rows.push([
-      row.channel.title,
-      row.current.views,
-      round(row.current.watchHours),
-      row.current.netSubscribers,
-      round(row.current.estimatedRevenue),
-      round(row.current.rpm),
-      round(row.current.playbackCpm),
-      row.current.adImpressions,
-      row.current.longVideosPublished,
-      row.current.shortVideosPublished,
-      row.current.ctr === null ? "Unavailable" : round(normalizeCtrPercent(row.current.ctr)),
-      roundNullable(row.weekOverWeek.views.percent),
-      roundNullable(row.weekOverWeek.estimatedRevenue.percent),
-      row.strengths.join("\n"),
-      row.weaknesses.join("\n")
-    ]);
+    rows.push(
+      includeRevenue
+        ? [
+            row.channel.title,
+            row.current.views,
+            round(row.current.watchHours),
+            row.current.netSubscribers,
+            round(row.current.estimatedRevenue),
+            round(row.current.rpm),
+            round(row.current.playbackCpm),
+            row.current.adImpressions,
+            row.current.longVideosPublished,
+            row.current.shortVideosPublished,
+            row.current.ctr === null ? "Unavailable" : round(normalizeCtrPercent(row.current.ctr)),
+            roundNullable(row.weekOverWeek.views.percent),
+            roundNullable(row.weekOverWeek.estimatedRevenue.percent),
+            row.strengths.join("\n"),
+            row.weaknesses.join("\n")
+          ]
+        : [
+            row.channel.title,
+            row.current.views,
+            round(row.current.watchHours),
+            row.current.netSubscribers,
+            row.current.longVideosPublished,
+            row.current.shortVideosPublished,
+            row.current.ctr === null ? "Unavailable" : round(normalizeCtrPercent(row.current.ctr)),
+            roundNullable(row.weekOverWeek.views.percent),
+            sanitizeInsightList(row.strengths, "Stable week with no major positive movement.").join("\n"),
+            sanitizeInsightList(row.weaknesses, "No major weakness flagged.").join("\n")
+          ]
+    );
   }
 
   return rows;

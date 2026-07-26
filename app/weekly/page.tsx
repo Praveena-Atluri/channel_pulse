@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { WeeklyPerformanceDashboard } from "@/components/weekly-performance-dashboard";
-import { canAccountViewRevenue } from "@/lib/auth";
+import { canAccountManageDashboard, canAccountViewRevenue } from "@/lib/auth";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { getDefaultWeeklyRange } from "@/lib/weekly-performance";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
@@ -31,7 +31,7 @@ export default async function WeeklyPerformancePage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-black">Weekly Performance</h1>
                 <Badge variant="secondary" className="rounded-md">
-                  {canViewRevenue ? "Admin" : "Viewer"}
+                  {canAccountManageDashboard(account) ? "Admin" : "Viewer"}
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -51,6 +51,7 @@ export default async function WeeklyPerformancePage() {
         </header>
 
         <WeeklyPerformanceDashboard
+          canDownloadReports={canAccountManageDashboard(account)}
           canViewRevenue={canViewRevenue}
           channels={channels}
           defaultEndDate={defaultRange.endDate}

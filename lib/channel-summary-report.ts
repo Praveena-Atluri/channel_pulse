@@ -59,7 +59,22 @@ export const CHANNEL_SUMMARY_COLUMNS: ChannelSummaryColumn[] = [
 ];
 
 export const CHANNEL_SUMMARY_COLUMN_IDS = CHANNEL_SUMMARY_COLUMNS.map((column) => column.id);
+export const CHANNEL_SUMMARY_REVENUE_COLUMN_IDS: ChannelSummaryColumnId[] = [
+  "revenue",
+  "estimated_ad_revenue",
+  "gross_revenue",
+  "rpm",
+  "playback_cpm",
+  "monetized_playbacks",
+  "ad_impressions",
+  "revenue_rank",
+  "rpm_rank"
+];
 
 export function isChannelSummaryColumnId(value: string): value is ChannelSummaryColumnId {
   return CHANNEL_SUMMARY_COLUMN_IDS.includes(value as ChannelSummaryColumnId);
+}
+
+export function isChannelSummaryRevenueColumnId(value: ChannelSummaryColumnId) {
+  return CHANNEL_SUMMARY_REVENUE_COLUMN_IDS.includes(value);
 }

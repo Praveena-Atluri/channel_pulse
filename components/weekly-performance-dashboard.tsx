@@ -32,6 +32,7 @@ import type {
 } from "@/lib/weekly-performance";
 
 type WeeklyPerformanceDashboardProps = {
+  canDownloadReports: boolean;
   canViewRevenue: boolean;
   channels: StoredYoutubeManagedChannel[];
   defaultEndDate: string;
@@ -96,6 +97,7 @@ function getWeeklyTrendMetrics(canViewRevenue: boolean) {
 }
 
 export function WeeklyPerformanceDashboard({
+  canDownloadReports,
   canViewRevenue,
   channels,
   defaultEndDate,
@@ -405,7 +407,7 @@ export function WeeklyPerformanceDashboard({
                     {isCompareLoading ? <LoaderCircle className="size-4 animate-spin" /> : <BarChart3 className="size-4" />}
                     {isCompareLoading ? "Syncing weekly data..." : "Apply"}
                   </Button>
-                  {canViewRevenue ? (
+                  {canDownloadReports ? (
                     <ReportDownloadButton
                       disabled={!canApplyCompare}
                       href={compareReportHref}

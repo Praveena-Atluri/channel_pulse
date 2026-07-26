@@ -43,6 +43,7 @@ type TargetChannel = {
 type MonthlyTargetsDashboardProps = {
   availableMonths: string[];
   canEditTargets?: boolean;
+  canViewRevenue?: boolean;
   channels: TargetChannel[];
   defaultMonth: string;
 };
@@ -84,6 +85,7 @@ const CHANNEL_PIE_COLORS = [
 export function MonthlyTargetsDashboard({
   availableMonths,
   canEditTargets = true,
+  canViewRevenue = canEditTargets,
   channels,
   defaultMonth
 }: MonthlyTargetsDashboardProps) {
@@ -111,8 +113,8 @@ export function MonthlyTargetsDashboard({
   const activeMode = canEditTargets ? mode : "status";
   const selectedChannelIds = activeMode === "status" ? statusChannelIds : editChannelIds;
   const setSelectedChannelIds = activeMode === "status" ? setStatusChannelIds : setEditChannelIds;
-  const statusMetrics = useMemo(() => getVisibleMonthlyTargetMetrics(canEditTargets), [canEditTargets]);
-  const editableMetrics = useMemo(() => getEditableMonthlyTargetMetrics(canEditTargets), [canEditTargets]);
+  const statusMetrics = useMemo(() => getVisibleMonthlyTargetMetrics(canViewRevenue), [canViewRevenue]);
+  const editableMetrics = useMemo(() => getEditableMonthlyTargetMetrics(canViewRevenue), [canViewRevenue]);
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();

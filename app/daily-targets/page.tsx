@@ -8,7 +8,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { canAccountViewRevenue } from "@/lib/auth";
+import { canAccountManageDashboard } from "@/lib/auth";
 import { getDailyPublishingTargetDashboardDataSafe } from "@/lib/daily-targets";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function DailyTargetsPage() {
   const account = await requireCurrentAccount("/daily-targets");
 
-  if (!canAccountViewRevenue(account)) {
+  if (!canAccountManageDashboard(account)) {
     redirect("/");
   }
 

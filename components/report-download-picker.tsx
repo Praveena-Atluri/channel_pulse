@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ManagedChannel } from "@/lib/youtube-performance";
 
 type ReportDownloadPickerProps = {
+  canViewRevenue: boolean;
   channels: ManagedChannel[];
   defaultRangeEndDate: string;
   defaultRangeStartDate: string;
@@ -20,6 +21,7 @@ type ReportDownloadPickerProps = {
 type ReportKind = "range" | "compare";
 
 export function ReportDownloadPicker({
+  canViewRevenue,
   channels,
   defaultRangeEndDate,
   defaultRangeStartDate,
@@ -52,6 +54,7 @@ export function ReportDownloadPicker({
 
         {reportKind === "range" ? (
           <ChannelSummaryReportDownload
+            canViewRevenue={canViewRevenue}
             channels={channels}
             defaultEndDate={defaultRangeEndDate}
             defaultStartDate={defaultRangeStartDate}
@@ -59,6 +62,7 @@ export function ReportDownloadPicker({
           />
         ) : (
           <ChannelCompareReportDownload
+            canViewRevenue={canViewRevenue}
             channels={channels}
             defaultComparisonEndDate={defaultComparisonEndDate}
             defaultComparisonStartDate={defaultComparisonStartDate}
