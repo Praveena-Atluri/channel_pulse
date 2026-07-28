@@ -204,6 +204,13 @@ export function calculatePercentTarget(metric: MonthlyTargetMetric, baseline: nu
   return roundTargetValue(metric, baseline * (1 + percent / 100));
 }
 
+export function calculateTargetIncreasePercent(baseline: number, target: number | null) {
+  if (target === null) return null;
+  if (baseline === 0) return target === 0 ? 0 : null;
+
+  return Math.round(((target - baseline) / baseline) * 1000) / 10;
+}
+
 export function normalizeTargetValue(metric: MonthlyTargetMetric, value: unknown) {
   if (value === null || value === undefined || value === "") {
     return null;

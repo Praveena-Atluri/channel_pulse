@@ -20,6 +20,7 @@ import {
   MONTHLY_TARGET_METRICS,
   TARGET_PERCENT_PRESETS,
   calculatePercentTarget,
+  calculateTargetIncreasePercent,
   getEditableMonthlyTargetMetrics,
   getTargetBaselineMonthOptions,
   getVisibleMonthlyTargetMetrics,
@@ -346,6 +347,9 @@ export function MonthlyTargetsDashboard({
   const downloadTargets = () => {
     try {
       const workbook = buildTargetsExcelWorkbook({
+        baselineMonth,
+        baselineMonths,
+        baselineSource,
         metrics: editableMetrics,
         month,
         rows
@@ -1128,10 +1132,16 @@ function getChannelPieColor(index: number) {
 }
 
 function buildTargetsExcelWorkbook({
+  baselineMonth,
+  baselineMonths,
+  baselineSource,
   metrics,
   month,
   rows
 }: {
+  baselineMonth: string;
+  baselineMonths: string[];
+  baselineSource: MonthlyTargetBaselineSource;
   metrics: readonly MonthlyTargetMetricDefinition[];
   month: string;
   rows: EditableTargetRow[];
@@ -1140,9 +1150,11 @@ function buildTargetsExcelWorkbook({
   const metricsWithTargets = metrics.filter((metric) =>
     rows.some((row) => normalizeTargetValue(metric.key, row.target[metric.key]) !== null)
   );
-  const headers = ["Month", "Channel"];
+  const headers = ["Month", "Channel", "Baseline Source"];
   for (const metric of metricsWithTargets) {
     headers.push(
+      `${metric.label} Base`,
+      `${metric.label} Increase %`,
       `${metric.label} Target`,
       `${metric.label}(${actualRangeLabel})`,
       `${metric.label} Progress %`
@@ -1150,18 +1162,38 @@ function buildTargetsExcelWorkbook({
   }
 
   const sheetRows: Array<Array<string | number | null>> = rows.map((row) => {
-    const values: Array<string | number | null> = [formatMonthLabel(month), row.channelTitle];
+    const values: Array<string | number | null> = [
+      formatMonthLabel(month),
+      row.channelTitle,
+      formatExportBaselineSourceLabel({
+        baselineMonth,
+        baselineMonths,
+        baselineSource,
+        sourceMonths: row.baselineSourceMonths
+      })
+    ];
 
     for (const metric of metricsWithTargets) {
       const targetValue = normalizeTargetValue(metric.key, row.target[metric.key]);
+      const baselineValue = row.hasBaselineData ? row.baseline[metric.key] : null;
+      const actualValue = row.actual[metric.key];
       if (targetValue === null) {
-        values.push(null, null, null);
+        values.push(
+          baselineValue === null ? null : formatExportMetricValue(metric.key, baselineValue),
+          null,
+          null,
+          formatExportMetricValue(metric.key, actualValue),
+          null
+        );
         continue;
       }
 
-      const actualValue = row.actual[metric.key];
+      const increasePercent =
+        baselineValue === null ? null : calculateTargetIncreasePercent(baselineValue, targetValue);
       const progressPercent = calculateExportProgressPercent(actualValue, targetValue);
       values.push(
+        baselineValue === null ? null : formatExportMetricValue(metric.key, baselineValue),
+        increasePercent,
         formatExportMetricValue(metric.key, targetValue),
         formatExportMetricValue(metric.key, actualValue),
         progressPercent === null ? null : formatExportDecimal(progressPercent, 1)
@@ -1172,6 +1204,28 @@ function buildTargetsExcelWorkbook({
   });
 
   return buildExcelXml([headers, ...sheetRows]);
+}
+
+function formatExportBaselineSourceLabel({
+  baselineMonth,
+  baselineMonths,
+  baselineSource,
+  sourceMonths
+}: {
+  baselineMonth: string;
+  baselineMonths: string[];
+  baselineSource: MonthlyTargetBaselineSource;
+  sourceMonths: Partial<Record<MonthlyTargetMetric, string | null>>;
+}) {
+  if (baselineSource === "last-three-months-average") {
+    const months = baselineMonths
+      .slice(0, 3)
+      .map(formatMonthLabel)
+      .join(", ");
+    return months ? `Last 3 months average (${months})` : "Last 3 months average";
+  }
+
+  return formatBaselineSourceLabel(baselineSource, baselineMonth, sourceMonths);
 }
 
 function buildExcelXml(rows: Array<Array<string | number | null>>) {

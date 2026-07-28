@@ -5,6 +5,7 @@ import {
   DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE,
   aggregateTargetProgressRows,
   calculatePercentTarget,
+  calculateTargetIncreasePercent,
   createEmptyActualValues,
   createEmptyTargetValues,
   getEditableMonthlyTargetMetrics,
@@ -67,6 +68,14 @@ test("calculates percent targets with metric-specific rounding", () => {
   assert.equal(calculatePercentTarget("watchHours", 12.34, 15), 14.2);
   assert.equal(calculatePercentTarget("netSubscribers", 7, 50), 11);
   assert.equal(calculatePercentTarget("estimatedRevenue", 123.45, 10), 135.8);
+});
+
+test("calculates the increase from baseline to target for exports", () => {
+  assert.equal(calculateTargetIncreasePercent(100, 125), 25);
+  assert.equal(calculateTargetIncreasePercent(80, 72), -10);
+  assert.equal(calculateTargetIncreasePercent(0, 0), 0);
+  assert.equal(calculateTargetIncreasePercent(0, 10), null);
+  assert.equal(calculateTargetIncreasePercent(100, null), null);
 });
 
 test("normalizes blank targets as null and rejects invalid values", () => {
