@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAvailableReportMonths,
   calculateNetSubscribers,
   classifyVideoContentType,
   getCurrentReportMonth,
@@ -11,6 +12,15 @@ import {
   parseIsoDurationToSeconds,
   safePercentChange
 } from "../lib/youtube-performance-utils.ts";
+
+test("lists every monthly report through January 2024", () => {
+  const months = buildAvailableReportMonths("2026-07", new Date(Date.UTC(2026, 7, 1)));
+
+  assert.equal(months[0], "2026-08");
+  assert.equal(months.at(-1), "2024-01");
+  assert.equal(months.length, 32);
+  assert.ok(months.includes("2024-02"));
+});
 
 test("builds calendar month reporting ranges", () => {
   assert.deepEqual(getMonthDateRange("2026-05"), {

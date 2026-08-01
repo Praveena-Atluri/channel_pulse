@@ -8,6 +8,7 @@ import {
 } from "@/lib/youtube-video-privacy";
 import {
   addMetricTotals,
+  buildAvailableReportMonths,
   calculateNetSubscribers,
   createEmptyTotals,
   getCurrentReportMonth,
@@ -1442,17 +1443,7 @@ function hasVideoPerformanceMetrics(row: VideoPerformanceRow) {
 }
 
 function buildAvailableMonths(latestMonth: string) {
-  const currentMonth = getCurrentReportMonth();
-  const anchorMonth = latestMonth > currentMonth ? latestMonth : currentMonth;
-  const [year, month] = anchorMonth.split("-").map(Number);
-  const months: string[] = [];
-
-  for (let index = 0; index < 24; index += 1) {
-    const date = new Date(Date.UTC(year, month - 1 - index, 1));
-    months.push(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`);
-  }
-
-  return months;
+  return buildAvailableReportMonths(latestMonth);
 }
 
 function getInclusiveMonthDateRange(month: string) {

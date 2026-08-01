@@ -4,6 +4,7 @@ import {
   fetchAnalyticsReportWithFallback,
   fetchChannelVideosPublishedBetween,
   fetchManagedYouTubeChannels,
+  fetchYouTubeChannels,
   fetchYouTubeShortsPlaylistMemberships,
   fetchYouTubeVideos,
   getYouTubeCmsConfig,
@@ -11,9 +12,14 @@ import {
   withYouTubeContentOwner,
   type AnalyticsReportResult,
   type AnalyticsReportRow,
+  type YouTubeApiConfig,
   type YouTubeChannelMetadata,
   type YouTubeVideoMetadata,
 } from "@/lib/youtube-cms-api";
+import {
+  getYouTubeDirectConfig,
+  isDirectYoutubeChannel
+} from "@/lib/youtube-channel-sources";
 import {
   normalizeAnalyticsContentType,
   getMonthDateRange,
@@ -139,17 +145,47 @@ export async function syncYoutubeCmsAnalytics(input: SyncInput) {
   syncRun = syncInsert.data as SyncRunRecord;
 
   try {
-    const config = getYouTubeCmsConfig();
-    const accessToken = await refreshYouTubeAccessToken(config);
     const warnings: string[] = [];
-    const channelCatalogs = await fetchManagedChannelsByContentOwner(accessToken, config.contentOwnerIds);
-    const allChannelMetadata = uniqueChannels(channelCatalogs.flatMap((catalog) => catalog.channels));
-    const selectedCatalog = channelCatalogs.find((catalog) =>
-      catalog.channels.some((channel) => channel.channelId === input.channelId)
-    );
-    const channelMetadata = selectedCatalog?.channels.filter((channel) => channel.channelId === input.channelId) ?? [];
-    const channelIds = channelMetadata.map((channel) => channel.channelId);
-    const selectedConfig = selectedCatalog ? withYouTubeContentOwner(config, selectedCatalog.contentOwnerId) : config;
+    let selectedConfig: YouTubeApiConfig;
+    let accessToken: string;
+    let allChannelMetadata: YouTubeChannelMetadata[];
+    let channelMetadata: YouTubeChannelMetadata[];
+    let channelIds: string[];
+
+    if (isDirectYoutubeChannel(input.channelId)) {
+      selectedConfig = getYouTubeDirectConfig(input.channelId);
+      accessToken = await refreshYouTubeAccessToken(selectedConfig);
+      try {
+        channelMetadata = await fetchYouTubeChannels(accessToken, [input.channelId]);
+      } catch (error) {
+        if (!isYouTubeDataQuotaError(error)) throw error;
+        warnings.push(`${input.channelId} channel metadata refresh skipped because the YouTube Data API quota is exhausted.`);
+        channelMetadata = [];
+      }
+      allChannelMetadata = channelMetadata;
+      channelIds = [input.channelId];
+    } else {
+      const config = getYouTubeCmsConfig();
+      accessToken = await refreshYouTubeAccessToken(config);
+      try {
+        const channelCatalogs = await fetchManagedChannelsByContentOwner(accessToken, config.contentOwnerIds);
+        allChannelMetadata = uniqueChannels(channelCatalogs.flatMap((catalog) => catalog.channels));
+        const selectedCatalog = channelCatalogs.find((catalog) =>
+          catalog.channels.some((channel) => channel.channelId === input.channelId)
+        );
+        channelMetadata = selectedCatalog?.channels.filter((channel) => channel.channelId === input.channelId) ?? [];
+        selectedConfig = selectedCatalog ? withYouTubeContentOwner(config, selectedCatalog.contentOwnerId) : config;
+        channelIds = channelMetadata.map((channel) => channel.channelId);
+      } catch (error) {
+        if (!isYouTubeDataQuotaError(error)) throw error;
+        warnings.push(`${input.channelId} CMS channel catalog refresh skipped because the YouTube Data API quota is exhausted.`);
+        allChannelMetadata = [];
+        channelMetadata = [];
+        selectedConfig = config;
+        channelIds = [input.channelId];
+      }
+    }
+
     const includePeriodBreakdowns =
       input.storePeriodBreakdowns === false
         ? false
@@ -163,7 +199,7 @@ export async function syncYoutubeCmsAnalytics(input: SyncInput) {
     await upsertYoutubeManagedChannels(db, allChannelMetadata);
 
     if (input.channelId && input.channelId !== "all" && channelIds.length === 0) {
-      throw new Error("Selected channel was not found in this CMS account.");
+      throw new Error("Selected channel was not found for its configured YouTube account.");
     }
 
     const channelReportGroups = await mapWithConcurrency(channelIds, 8, async (channelId) =>
@@ -304,7 +340,9 @@ export async function syncYoutubeCreatorContentTypesForVideos(input: {
     };
   }
 
-  const config = getYouTubeCmsConfig();
+  const config = isDirectYoutubeChannel(input.channelId)
+    ? getYouTubeDirectConfig(input.channelId)
+    : getYouTubeCmsConfig();
   const accessToken = await refreshYouTubeAccessToken(config);
   const warnings: string[] = [];
   const contentTypesByVideoId = await fetchCreatorContentTypesForVideos({
@@ -455,16 +493,33 @@ function withChannelId(rows: DailyMetricAccumulator[], channelId: string) {
   return rows.map((row) => ({ ...row, channelId }));
 }
 
+function getChannelAnalyticsFilter(config: YouTubeApiConfig, channelId: string, extraFilter?: string) {
+  return combineAnalyticsFilters(
+    config.sourceType === "cms" ? `channel==${channelId}` : undefined,
+    extraFilter
+  );
+}
+
+function combineAnalyticsFilters(...filters: Array<string | undefined>) {
+  const combined = filters.map((filter) => filter?.trim()).filter(Boolean).join(";");
+  return combined || undefined;
+}
+
+function isYouTubeDataQuotaError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /quotaExceeded|exceeded your.*quota/i.test(message);
+}
+
 async function fetchChannelReports(input: {
   accessToken: string;
   channelId: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   endDate: string;
   includePeriodBreakdowns: boolean;
   startDate: string;
   warnings: string[];
 }) {
-  const channelFilter = `channel==${input.channelId}`;
+  const channelFilter = getChannelAnalyticsFilter(input.config, input.channelId);
   const countryReportPromise = input.includePeriodBreakdowns
     ? fetchCountryPeriodReports({
         accessToken: input.accessToken,
@@ -568,7 +623,7 @@ async function fetchChannelReports(input: {
 async function fetchCountryPeriodReports(input: {
   accessToken: string;
   channelId: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   periods: Array<{ startDate: string; endDate: string }>;
   warnings: string[];
 }) {
@@ -583,7 +638,7 @@ async function fetchCountryPeriodReports(input: {
           endDate: period.endDate,
           dimensions: ["country"],
           metricSets: COUNTRY_METRIC_SETS,
-          filters: `channel==${input.channelId}`,
+          filters: getChannelAnalyticsFilter(input.config, input.channelId),
           sort: ["-estimatedRevenue"]
         }),
       `${input.channelId} country ${period.startDate} to ${period.endDate}`,
@@ -606,7 +661,7 @@ function isMonthStartDate(date: string) {
 async function fetchVideoPeriodReports(input: {
   accessToken: string;
   channelId: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   periods: Array<{ startDate: string; endDate: string }>;
   warnings: string[];
 }) {
@@ -629,7 +684,7 @@ async function fetchVideoPeriodReports(input: {
       startDate: period.startDate,
       endDate: period.endDate,
       metricSets: VIDEO_METRIC_SETS,
-      filters: `channel==${input.channelId}`,
+      filters: getChannelAnalyticsFilter(input.config, input.channelId),
       maxResults: 200,
       paginate: false as const
     };
@@ -682,7 +737,7 @@ async function fetchVideoPeriodReports(input: {
 async function fetchCreatorContentTypesForVideos(input: {
   accessToken: string;
   channelId: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   endDate: string;
   startDate: string;
   videoIds: string[];
@@ -693,17 +748,24 @@ async function fetchCreatorContentTypesForVideos(input: {
   for (const ids of chunk(unique(input.videoIds), 100)) {
     if (ids.length === 0) continue;
 
-    for (const contentOwnerId of input.config.contentOwnerIds) {
+    const reportConfigs =
+      input.config.sourceType === "cms"
+        ? input.config.contentOwnerIds.map((contentOwnerId) =>
+            withYouTubeContentOwner(input.config as ReturnType<typeof getYouTubeCmsConfig>, contentOwnerId)
+          )
+        : [input.config];
+
+    for (const reportConfig of reportConfigs) {
       const report = await fetchOptionalReport(
         () =>
           fetchAnalyticsReportWithFallback({
             accessToken: input.accessToken,
-            config: withYouTubeContentOwner(input.config, contentOwnerId),
+            config: reportConfig,
             startDate: input.startDate,
             endDate: input.endDate,
             dimensions: ["video", "creatorContentType"],
             metricSets: CREATOR_CONTENT_TYPE_METRIC_SETS,
-            filters: `channel==${input.channelId};video==${ids.join(",")}`,
+            filters: getChannelAnalyticsFilter(reportConfig, input.channelId, `video==${ids.join(",")}`),
             maxResults: ids.length,
             paginate: false
           }),
@@ -771,11 +833,11 @@ async function fetchShortsPlaylistContentTypesForVideos(input: {
 
 async function fetchVideoIdReports(input: {
   accessToken: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   startDate: string;
   endDate: string;
   metricSets: string[][];
-  filters: string;
+  filters?: string;
   maxResults: number;
   paginate: false;
   videoIds: string[];
@@ -794,7 +856,7 @@ async function fetchVideoIdReports(input: {
             startDate: input.startDate,
             endDate: input.endDate,
             metricSets: input.metricSets,
-            filters: `${input.filters};video==${ids.join(",")}`,
+            filters: combineAnalyticsFilters(input.filters, `video==${ids.join(",")}`),
             label: `${input.label} chunk ${index + 1}`,
             maxResults: input.maxResults,
             paginate: input.paginate,
@@ -809,11 +871,11 @@ async function fetchVideoIdReports(input: {
 
 async function fetchVideoAnalyticsReportWithContentTypeFallback(input: {
   accessToken: string;
-  config: ReturnType<typeof getYouTubeCmsConfig>;
+  config: YouTubeApiConfig;
   startDate: string;
   endDate: string;
   metricSets: string[][];
-  filters: string;
+  filters?: string;
   label: string;
   maxResults: number;
   paginate: false;

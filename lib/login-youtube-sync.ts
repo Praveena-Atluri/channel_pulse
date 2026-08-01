@@ -1,6 +1,6 @@
 import type { ChannelPulseAccount } from "@/lib/auth";
 import { createDatabaseAdminClient } from "@/lib/database";
-import { isYouTubeCmsConfigured } from "@/lib/youtube-cms-api";
+import { isYouTubeSyncConfigured } from "@/lib/youtube-channel-sources";
 import { ensureYoutubeAnalyticsRangeData } from "@/lib/youtube-auto-sync";
 import {
   getLoginSyncScope,
@@ -43,7 +43,7 @@ const inFlightLoginSyncs = new Map<string, Promise<void>>();
 const LOGIN_SYNC_RUNNING_LEASE_MS = 15 * 60 * 1000;
 
 export async function runLoginYoutubeSync(_account: ChannelPulseAccount) {
-  if (!isYouTubeCmsConfigured()) {
+  if (!isYouTubeSyncConfigured()) {
     return;
   }
 

@@ -1,11 +1,18 @@
 import { createDatabaseAdminClient } from "@/lib/database";
 import {
   fetchManagedYouTubeChannels,
+  fetchYouTubeChannels,
   getYouTubeCmsConfig,
+  isYouTubeCmsConfigured,
   refreshYouTubeAccessToken,
   type YouTubeChannelMetadata
 } from "@/lib/youtube-cms-api";
 import { filterFocusedYouTubeChannels } from "@/lib/youtube-channel-allowlist";
+import {
+  getDirectYoutubeChannelIds,
+  getYouTubeDirectConfig,
+  isYouTubeDirectConfigured
+} from "@/lib/youtube-channel-sources";
 
 export type StoredYoutubeManagedChannel = {
   channelId: string;
@@ -53,15 +60,31 @@ export async function listStoredYoutubeManagedChannels(db = createDatabaseAdminC
 
 export async function refreshYoutubeManagedChannelCatalog() {
   const db = createDatabaseAdminClient();
-  const config = getYouTubeCmsConfig();
-  const accessToken = await refreshYouTubeAccessToken(config);
   const channelsById = new Map<string, YouTubeChannelMetadata>();
 
-  for (const contentOwnerId of config.contentOwnerIds) {
-    const channels = await fetchManagedYouTubeChannels(accessToken, contentOwnerId);
+  if (isYouTubeCmsConfigured()) {
+    const config = getYouTubeCmsConfig();
+    const accessToken = await refreshYouTubeAccessToken(config);
+    for (const contentOwnerId of config.contentOwnerIds) {
+      const channels = await fetchManagedYouTubeChannels(accessToken, contentOwnerId);
+      for (const channel of channels) {
+        channelsById.set(channel.channelId, channel);
+      }
+    }
+  }
+
+  if (isYouTubeDirectConfigured()) {
+    const directChannelIds = getDirectYoutubeChannelIds();
+    const config = getYouTubeDirectConfig(directChannelIds[0]);
+    const accessToken = await refreshYouTubeAccessToken(config);
+    const channels = await fetchYouTubeChannels(accessToken, directChannelIds);
     for (const channel of channels) {
       channelsById.set(channel.channelId, channel);
     }
+  }
+
+  if (!isYouTubeCmsConfigured() && !isYouTubeDirectConfigured()) {
+    throw new Error("YouTube CMS or direct-channel authentication must be configured.");
   }
 
   await upsertYoutubeManagedChannels(db, Array.from(channelsById.values()));

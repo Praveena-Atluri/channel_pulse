@@ -53,6 +53,26 @@ Open `/` for the dashboard hub. The monthly dashboard lives at `/monthly`, and t
 
 Use the channel refresh button in the dashboard to pull the CMS-managed channel catalog, select one channel, then sync the month or date range you want to report on.
 
+### Fixed direct channels outside the CMS
+
+If one Google account has YouTube API access to a fixed set of non-CMS channels, add an explicit channel allowlist:
+
+```bash
+YOUTUBE_DIRECT_CHANNEL_IDS=UC_CHANNEL_1,UC_CHANNEL_2,UC_CHANNEL_3
+```
+
+Channel Pulse reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `YOUTUBE_OAUTH_REFRESH_TOKEN`. If the fixed channels need a different OAuth grant, set `YOUTUBE_DIRECT_REFRESH_TOKEN` to override the shared token. The grant needs `youtube.readonly`, `yt-analytics.readonly`, and—when revenue is required—`yt-analytics-monetary.readonly`.
+
+When Google authorizes each Brand channel as a separate YouTube identity, provide a token per channel as a JSON object. A channel-specific token takes precedence over the shared token:
+
+```bash
+YOUTUBE_DIRECT_CHANNEL_REFRESH_TOKENS='{"UC_CHANNEL_1":"refresh-token-1","UC_CHANNEL_2":"refresh-token-2"}'
+```
+
+Channel Pulse only imports IDs in `YOUTUBE_DIRECT_CHANNEL_IDS`. Direct channels use `ids=channel==CHANNEL_ID`; CMS channels continue using the content-owner query path.
+
+After updating the environment, restart Channel Pulse and use **Refresh Channels** once. The configured channels then appear in the same dashboards, targets, comparisons, daily publishing views, and exports as CMS channels.
+
 The sync API is also available directly:
 
 ```bash
@@ -63,7 +83,7 @@ curl -X POST http://localhost:3000/api/youtube/sync \
 
 Revenue values are YouTube API-reported estimates. `creatorContentType` is used for Shorts and long-form splits where the Analytics API allows it; otherwise Channel Pulse falls back to video duration.
 
-To backfill all focused CMS channels from YouTube into the database, run:
+To backfill all focused CMS and configured direct channels from YouTube into the database, run:
 
 ```bash
 npm run youtube:backfill

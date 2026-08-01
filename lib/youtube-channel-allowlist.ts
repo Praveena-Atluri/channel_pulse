@@ -31,17 +31,22 @@ const FOCUSED_CHANNELS_BY_ID = new Map<string, { title: string; channelId: strin
 const FOCUSED_CHANNEL_TITLE_KEYS = new Set(FOCUSED_YOUTUBE_CHANNELS.map((channel) => normalizeYouTubeChannelTitle(channel.title)));
 
 export function filterFocusedYouTubeChannels<T extends { channelId: string; title: string }>(channels: T[]) {
+  const directChannelIds = getConfiguredDirectChannelIds();
+  const directChannelOrder = new Map(directChannelIds.map((channelId, index) => [channelId, index]));
   return channels
-    .filter((channel) => FOCUSED_CHANNELS_BY_ID.has(channel.channelId))
+    .filter((channel) => FOCUSED_CHANNELS_BY_ID.has(channel.channelId) || directChannelOrder.has(channel.channelId))
     .map((channel) => ({
       ...channel,
       title: FOCUSED_CHANNELS_BY_ID.get(channel.channelId)?.title ?? channel.title
     }))
-    .sort((first, second) => getFocusedChannelOrder(first.channelId) - getFocusedChannelOrder(second.channelId));
+    .sort(
+      (first, second) =>
+        getChannelOrder(first.channelId, directChannelOrder) - getChannelOrder(second.channelId, directChannelOrder)
+    );
 }
 
 export function isFocusedYouTubeChannelId(channelId: string) {
-  return FOCUSED_CHANNELS_BY_ID.has(channelId);
+  return FOCUSED_CHANNELS_BY_ID.has(channelId) || getConfiguredDirectChannelIds().includes(channelId);
 }
 
 export function isFocusedYouTubeChannelTitle(title: string) {
@@ -54,4 +59,22 @@ export function normalizeYouTubeChannelTitle(title: string) {
 
 function getFocusedChannelOrder(channelId: string) {
   return FOCUSED_CHANNELS_BY_ID.get(channelId)?.index ?? Number.MAX_SAFE_INTEGER;
+}
+
+function getChannelOrder(channelId: string, directChannelOrder: Map<string, number>) {
+  const focusedOrder = getFocusedChannelOrder(channelId);
+  if (focusedOrder !== Number.MAX_SAFE_INTEGER) return focusedOrder;
+
+  return FOCUSED_YOUTUBE_CHANNELS.length + (directChannelOrder.get(channelId) ?? Number.MAX_SAFE_INTEGER);
+}
+
+function getConfiguredDirectChannelIds() {
+  return Array.from(
+    new Set(
+      (process.env.YOUTUBE_DIRECT_CHANNEL_IDS ?? "")
+        .split(",")
+        .map((channelId) => channelId.trim())
+        .filter(Boolean)
+    )
+  );
 }

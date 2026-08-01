@@ -9,6 +9,10 @@ import {
 } from "@/lib/youtube-cms-api";
 import { syncYoutubeCreatorContentTypesForVideos } from "@/lib/youtube-performance-sync";
 import type { VideoContentType } from "@/lib/youtube-performance-utils";
+import {
+  getYouTubeDirectConfig,
+  isDirectYoutubeChannel
+} from "@/lib/youtube-channel-sources";
 
 type PublishedVideoSyncChannel = {
   channelId: string;
@@ -57,16 +61,21 @@ async function syncYoutubePublishedVideosForDateOnce(
   channelLabelById: Map<string, string>,
   date: string
 ): Promise<PublishedVideoSyncResult> {
-  const config = getYouTubeCmsConfig();
-  const accessToken = await refreshYouTubeAccessToken(config);
   const dailyRange = getDailyMetricsUtcRange(date);
   const sourceStartDate = addDays(date, -1);
   const sourceEndDate = addDays(date, 1);
   const warnings: string[] = [];
+  const accessTokens = new Map<string, Promise<string>>();
   let videosSynced = 0;
 
   await mapWithConcurrency(channelIds, PUBLISHED_VIDEO_SYNC_CONCURRENCY, async (channelId) => {
     try {
+      const isDirect = isDirectYoutubeChannel(channelId);
+      const config = isDirect ? getYouTubeDirectConfig(channelId) : getYouTubeCmsConfig();
+      const tokenKey = isDirect ? "direct" : "cms";
+      const accessTokenPromise = accessTokens.get(tokenKey) ?? refreshYouTubeAccessToken(config);
+      accessTokens.set(tokenKey, accessTokenPromise);
+      const accessToken = await accessTokenPromise;
       const videos = await fetchChannelVideosPublishedBetween({
         accessToken,
         channelId,

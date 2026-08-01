@@ -2,6 +2,7 @@ export type VideoContentType = "short" | "long" | "live" | "unknown";
 export type VideoCohort = "all" | "recent" | "old";
 
 const MAX_SHORT_DURATION_SECONDS = 180;
+const EARLIEST_MONTHLY_REPORT_MONTH = "2024-01";
 
 export type MetricTotals = {
   views: number;
@@ -65,6 +66,26 @@ export function getDefaultReportMonth(now = new Date()) {
 
 export function getCurrentReportMonth(now = new Date()) {
   return formatMonth(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
+}
+
+export function buildAvailableReportMonths(latestMonth: string, now = new Date()) {
+  const currentMonth = getCurrentReportMonth(now);
+  const anchorMonth = latestMonth > currentMonth ? latestMonth : currentMonth;
+  const [anchorYear, anchorMonthNumber] = parseMonth(anchorMonth);
+  const [earliestYear, earliestMonthNumber] = parseMonth(EARLIEST_MONTHLY_REPORT_MONTH);
+  const anchor = new Date(Date.UTC(anchorYear, anchorMonthNumber - 1, 1));
+  const earliest = new Date(Date.UTC(earliestYear, earliestMonthNumber - 1, 1));
+
+  if (anchor.getTime() < earliest.getTime()) {
+    return [anchorMonth];
+  }
+
+  const months: string[] = [];
+  for (const cursor = new Date(anchor); cursor >= earliest; cursor.setUTCMonth(cursor.getUTCMonth() - 1)) {
+    months.push(formatMonth(cursor));
+  }
+
+  return months;
 }
 
 export function formatMonth(date: Date) {

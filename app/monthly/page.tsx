@@ -40,7 +40,7 @@ import {
 } from "@/lib/monthly-target-metrics";
 import { getMonthlyTargetDashboardDataSafe, type MonthlyTargetDashboardData } from "@/lib/monthly-targets";
 import { requireCurrentAccount } from "@/lib/server-auth";
-import { isYouTubeCmsConfigured } from "@/lib/youtube-cms-api";
+import { isYouTubeSyncConfigured } from "@/lib/youtube-channel-sources";
 import {
   getYoutubePerformanceDashboard,
   normalizeYoutubePerformanceFilters,
@@ -73,7 +73,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
     contentType: params.contentType
   });
   const dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
-  const cmsConfigured = isYouTubeCmsConfigured();
+  const cmsConfigured = isYouTubeSyncConfigured();
 
   const netSubscribers = calculateNetSubscribers(dashboard.channelSubscriberTotals);
   const selectedChannel = dashboard.channels.find((channel) => channel.channelId === dashboard.filters.channelId);
@@ -156,8 +156,8 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
 
         {!cmsConfigured ? (
           <StatusPanel
-            title="YouTube CMS OAuth is not configured"
-            message="Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, YOUTUBE_OAUTH_REFRESH_TOKEN, and one or more comma-separated YOUTUBE_CONTENT_OWNER_ID values before running the sync."
+            title="YouTube OAuth is not configured"
+            message="Configure the YouTube CMS credentials or add YOUTUBE_DIRECT_CHANNEL_IDS to an authorized OAuth account before running the sync."
           />
         ) : null}
 
@@ -203,7 +203,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
           {canEvaluateDataCoverage && !canShowComparisonData ? (
             <StatusPanel
               title="Data is unavailable"
-              message="Channel Pulse could not load data for the selected range. The latest login refresh may still be syncing, or the YouTube CMS did not return data for this channel and date range."
+              message="Channel Pulse could not load data for the selected range. The latest login refresh may still be syncing, or YouTube did not return data for this channel and date range."
             />
           ) : null}
 

@@ -189,7 +189,19 @@ async function backfillChannel(
 }
 
 async function getBackfillChannels(options: BackfillOptions) {
-  const channels = options.dryRun ? await listStoredYoutubeManagedChannels() : await refreshYoutubeManagedChannelCatalog();
+  let channels;
+  if (options.dryRun) {
+    channels = await listStoredYoutubeManagedChannels();
+  } else {
+    try {
+      channels = await refreshYoutubeManagedChannelCatalog();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/quotaExceeded|exceeded your.*quota/i.test(message)) throw error;
+      console.warn("YouTube Data API quota is exhausted; using the stored channel catalog for this backfill.");
+      channels = await listStoredYoutubeManagedChannels();
+    }
+  }
   if (options.channelIds.length === 0) return channels;
 
   const allowed = new Set(options.channelIds);

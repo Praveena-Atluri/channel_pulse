@@ -14,13 +14,20 @@ const YOUTUBE_DATA_API_BASE = "https://www.googleapis.com/youtube/v3";
 const REPORT_PAGE_SIZE = 200;
 const GOOGLE_API_TIMEOUT_MS = 30_000;
 
-export type YouTubeCmsConfig = {
+export type YouTubeApiConfig = {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
-  contentOwnerId: string;
+  contentOwnerId?: string;
   contentOwnerIds: string[];
   analyticsFilters: string;
+  analyticsIds: string;
+  sourceType: "cms" | "direct";
+};
+
+export type YouTubeCmsConfig = YouTubeApiConfig & {
+  contentOwnerId: string;
+  sourceType: "cms";
 };
 
 export type AnalyticsReportParams = {
@@ -95,7 +102,9 @@ export function getYouTubeCmsConfig(): YouTubeCmsConfig {
     refreshToken: refreshToken as string,
     contentOwnerId: contentOwnerIds[0],
     contentOwnerIds,
-    analyticsFilters: process.env.YOUTUBE_ANALYTICS_FILTERS ?? "claimedStatus==claimed"
+    analyticsFilters: process.env.YOUTUBE_ANALYTICS_FILTERS ?? "claimedStatus==claimed",
+    analyticsIds: `contentOwner==${contentOwnerIds[0]}`,
+    sourceType: "cms"
   };
 }
 
@@ -109,10 +118,10 @@ export function isYouTubeCmsConfigured() {
 }
 
 export function withYouTubeContentOwner(config: YouTubeCmsConfig, contentOwnerId: string): YouTubeCmsConfig {
-  return { ...config, contentOwnerId };
+  return { ...config, analyticsIds: `contentOwner==${contentOwnerId}`, contentOwnerId };
 }
 
-export async function refreshYouTubeAccessToken(config = getYouTubeCmsConfig()) {
+export async function refreshYouTubeAccessToken(config: YouTubeApiConfig = getYouTubeCmsConfig()) {
   const body = new URLSearchParams({
     client_id: config.clientId,
     client_secret: config.clientSecret,
@@ -142,7 +151,7 @@ export async function refreshYouTubeAccessToken(config = getYouTubeCmsConfig()) 
 
 export async function fetchAnalyticsReport(
   accessToken: string,
-  config: YouTubeCmsConfig,
+  config: YouTubeApiConfig,
   reportParams: AnalyticsReportParams
 ): Promise<AnalyticsReportResult> {
   let startIndex = 1;
@@ -150,15 +159,18 @@ export async function fetchAnalyticsReport(
 
   while (true) {
     const params = new URLSearchParams({
-      ids: reportParams.ids ?? `contentOwner==${config.contentOwnerId}`,
+      ids: reportParams.ids ?? config.analyticsIds,
       startDate: reportParams.startDate,
       endDate: reportParams.endDate,
       dimensions: reportParams.dimensions.join(","),
       metrics: reportParams.metrics.join(","),
       maxResults: String(reportParams.maxResults ?? REPORT_PAGE_SIZE),
       startIndex: String(startIndex),
-      includeHistoricalChannelData: "true"
     });
+
+    if (config.sourceType === "cms") {
+      params.set("includeHistoricalChannelData", "true");
+    }
 
     if (reportParams.filters) {
       params.set("filters", reportParams.filters);
@@ -198,7 +210,7 @@ export async function fetchAnalyticsReport(
 
 export async function fetchAnalyticsReportWithFallback(input: {
   accessToken: string;
-  config: YouTubeCmsConfig;
+  config: YouTubeApiConfig;
   ids?: string;
   startDate: string;
   endDate: string;

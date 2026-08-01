@@ -37,7 +37,7 @@ import {
 import { isLoginSyncFresh } from "@/lib/login-sync-utils";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { ensureYoutubeAnalyticsRangeData, getIncompleteYoutubeAnalyticsChannelIds } from "@/lib/youtube-auto-sync";
-import { isYouTubeCmsConfigured } from "@/lib/youtube-cms-api";
+import { isYouTubeSyncConfigured } from "@/lib/youtube-channel-sources";
 import {
   getYoutubeComparisonDashboard,
   normalizeYoutubeComparisonFilters,
@@ -82,7 +82,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
   const canViewRevenue = canAccountViewRevenue(account);
   const filters = normalizeYoutubeComparisonFilters(params);
   let dashboard = await getYoutubeComparisonDashboard(filters, getAccountChannelAccess(account));
-  const cmsConfigured = isYouTubeCmsConfigured();
+  const cmsConfigured = isYouTubeSyncConfigured();
   let autoSyncError = "";
 
   if (dashboard.schemaReady && cmsConfigured && !isLoginSyncFresh(dashboard.latestSync?.finishedAt)) {
@@ -206,8 +206,8 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
 
         {!cmsConfigured ? (
           <StatusPanel
-            title="YouTube CMS OAuth is not configured"
-            message="Add the Google OAuth and YouTube CMS environment values before running a comparison sync."
+            title="YouTube OAuth is not configured"
+            message="Configure either the YouTube CMS credentials or the fixed direct-channel OAuth values before running a comparison sync."
           />
         ) : null}
 
@@ -260,7 +260,7 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
               title="Data is unavailable"
               message={
                 autoSyncError ||
-                "Channel Pulse could not load data for the selected comparison ranges. The YouTube CMS did not return data for this channel and date range."
+                "Channel Pulse could not load data for the selected comparison ranges. YouTube did not return data for this channel and date range."
               }
             />
           ) : null}

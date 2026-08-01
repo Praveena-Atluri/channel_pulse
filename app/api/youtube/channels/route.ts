@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const channels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
     return NextResponse.json({ channels, channelCount: channels.length });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to load YouTube CMS channels.";
+    const message = error instanceof Error ? error.message : "Unable to load YouTube channels.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const channels = await refreshYoutubeManagedChannelCatalog();
     return NextResponse.json({ channels, channelCount: channels.length });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to refresh YouTube CMS channels.";
+    const message = error instanceof Error ? error.message : "Unable to refresh YouTube channels.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
