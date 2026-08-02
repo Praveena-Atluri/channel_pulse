@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { canAccountManageDashboard, canAccountViewRevenue, getAccountChannelAccess } from "@/lib/auth";
 import { requireCurrentAccount } from "@/lib/server-auth";
-import { getMonthDateRange, getPreviousMonth } from "@/lib/youtube-performance-utils";
-import { getYoutubePerformanceDashboard, normalizeYoutubePerformanceFilters } from "@/lib/youtube-performance";
+import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
+import { getDefaultReportMonth, getMonthDateRange, getPreviousMonth } from "@/lib/youtube-performance-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -31,14 +31,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
     redirect("/");
   }
 
-  const filters = normalizeYoutubePerformanceFilters({
-    month: params.month,
-    channel: params.channel,
-    contentType: params.contentType
-  });
-  const dashboard = await getYoutubePerformanceDashboard(filters, getAccountChannelAccess(account));
-  const defaultDateRange = getMonthDateRange(dashboard.selectedMonth);
-  const defaultComparisonDateRange = getMonthDateRange(getPreviousMonth(dashboard.selectedMonth));
+  const access = getAccountChannelAccess(account);
+  const storedChannels = await listStoredYoutubeManagedChannels();
+  const channels =
+    access.channelIds === null
+      ? storedChannels
+      : storedChannels.filter((channel) => access.channelIds?.includes(channel.channelId));
+  const selectedMonth = isValidReportMonth(params.month) ? params.month : getDefaultReportMonth();
+  const defaultDateRange = getMonthDateRange(selectedMonth);
+  const defaultComparisonDateRange = getMonthDateRange(getPreviousMonth(selectedMonth));
 
   return (
     <main className="youtube-report-page min-h-screen p-4 md:p-6">
@@ -71,14 +72,18 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
         <ReportDownloadPicker
           canViewRevenue={canAccountViewRevenue(account)}
-          channels={dashboard.channels}
+          channels={channels}
           defaultComparisonEndDate={defaultComparisonDateRange.analyticsEndDate}
           defaultComparisonStartDate={defaultComparisonDateRange.startDate}
           defaultRangeEndDate={defaultDateRange.analyticsEndDate}
           defaultRangeStartDate={defaultDateRange.startDate}
-          schemaReady={dashboard.schemaReady}
+          schemaReady
         />
       </div>
     </main>
   );
+}
+
+function isValidReportMonth(value: string | undefined): value is string {
+  return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 }

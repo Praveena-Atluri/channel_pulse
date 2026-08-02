@@ -20,9 +20,11 @@ export function ReportDownloadButton({
 }: ReportDownloadButtonProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [warningMessage, setWarningMessage] = useState("");
 
   useEffect(() => {
     setErrorMessage("");
+    setWarningMessage("");
     setIsDownloading(false);
   }, [href]);
 
@@ -37,6 +39,7 @@ export function ReportDownloadButton({
           if (isDisabled) return;
 
           setErrorMessage("");
+          setWarningMessage("");
           setIsDownloading(true);
 
           try {
@@ -47,6 +50,7 @@ export function ReportDownloadButton({
 
             const blob = await response.blob();
             downloadBlob(blob, getDownloadFilename(response) ?? "channel-pulse-report.xlsx");
+            setWarningMessage(response.headers.get("X-Channel-Pulse-Warning") ?? "");
           } catch (error) {
             setErrorMessage(error instanceof Error ? error.message : "Report download failed.");
           } finally {
@@ -64,6 +68,9 @@ export function ReportDownloadButton({
         </p>
       ) : null}
       {errorMessage ? <p className="text-xs font-semibold text-destructive">{errorMessage}</p> : null}
+      {warningMessage ? (
+        <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">{warningMessage}</p>
+      ) : null}
     </div>
   );
 }

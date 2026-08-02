@@ -8,7 +8,10 @@ import {
   getAccountChannelAccess,
   getSessionAccount
 } from "@/lib/auth";
-import { ensureYoutubeAnalyticsRangeData } from "@/lib/youtube-auto-sync";
+import {
+  ensureYoutubeAnalyticsRangeData,
+  getMissingYoutubeAnalyticsRanges
+} from "@/lib/youtube-auto-sync";
 import {
   CHANNEL_COMPARE_COLUMNS,
   isChannelCompareColumnId,
@@ -55,6 +58,8 @@ const REPORT_TYPES = new Set<ReportType>([
 const DB_PAGE_SIZE = 1000;
 const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const REPORT_COLUMN_WIDTH = 16.86;
+const PARTIAL_DATA_WARNING =
+  "Downloaded with partial data. Some dates or channels in the selected range are unavailable; the workbook includes all data currently available.";
 
 export async function GET(request: NextRequest) {
   const account = await getSessionAccount(request.cookies.get(CHANNEL_PULSE_SESSION_COOKIE)?.value);
@@ -164,9 +169,9 @@ async function buildChannelSummaryResponse(request: NextRequest, account: Channe
     return NextResponse.json({ error: "Select valid channels." }, { status: 400 });
   }
 
-  let rows: XlsxCellValue[][];
+  let result: Awaited<ReturnType<typeof buildChannelSummaryRows>>;
   try {
-    rows = await buildChannelSummaryRows({
+    result = await buildChannelSummaryRows({
       channels: selectedChannels,
       columnIds: selectedColumnIds,
       endDate,
@@ -174,6 +179,12 @@ async function buildChannelSummaryResponse(request: NextRequest, account: Channe
     });
   } catch (error) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 502 });
+  }
+  if (!result.hasData) {
+    return NextResponse.json(
+      { error: "No data is available for any part of the selected report range." },
+      { status: 404 }
+    );
   }
   const filename = [
     "channel-pulse",
@@ -184,7 +195,12 @@ async function buildChannelSummaryResponse(request: NextRequest, account: Channe
     `${selectedChannels.length}-channels`
   ].join("-");
 
-  return buildWorkbookResponse(rows, filename, "Channel Summary");
+  return buildWorkbookResponse(
+    result.rows,
+    filename,
+    "Channel Summary",
+    result.isPartial ? PARTIAL_DATA_WARNING : undefined
+  );
 }
 
 async function buildChannelCompareResponse(request: NextRequest, account: ChannelPulseAccount) {
@@ -230,9 +246,9 @@ async function buildChannelCompareResponse(request: NextRequest, account: Channe
     return NextResponse.json({ error: "Select valid channels." }, { status: 400 });
   }
 
-  let rows: XlsxCellValue[][];
+  let result: Awaited<ReturnType<typeof buildChannelCompareRows>>;
   try {
-    rows = await buildChannelCompareRows({
+    result = await buildChannelCompareRows({
       channels: selectedChannels,
       columnIds: selectedColumnIds,
       comparisonEndDate,
@@ -242,6 +258,12 @@ async function buildChannelCompareResponse(request: NextRequest, account: Channe
     });
   } catch (error) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 502 });
+  }
+  if (!result.hasData) {
+    return NextResponse.json(
+      { error: "No data is available for any part of the selected comparison ranges." },
+      { status: 404 }
+    );
   }
   const filename = [
     "channel-pulse",
@@ -256,7 +278,12 @@ async function buildChannelCompareResponse(request: NextRequest, account: Channe
     `${selectedChannels.length}-channels`
   ].join("-");
 
-  return buildWorkbookResponse(rows, filename, "Compare Summary");
+  return buildWorkbookResponse(
+    result.rows,
+    filename,
+    "Compare Summary",
+    result.isPartial ? PARTIAL_DATA_WARNING : undefined
+  );
 }
 
 async function buildChannelSummaryRows({
@@ -270,8 +297,16 @@ async function buildChannelSummaryRows({
   startDate: string;
   endDate: string;
 }) {
-  await ensureYoutubeAnalyticsRangeData({ channels, endDate, startDate, storePeriodBreakdowns: false });
-  if (hasChannelSummaryRevenueColumns(columnIds)) {
+  const requireRevenue = hasChannelSummaryRevenueColumns(columnIds);
+  await ensureYoutubeAnalyticsRangeData({
+    channels,
+    endDate,
+    postSyncCheckAttempts: 1,
+    startDate,
+    storePeriodBreakdowns: false,
+    throwOnIncomplete: false
+  });
+  if (requireRevenue) {
     await ensureRevenueMetricsForRange({ channels, startDate, endDate });
   }
 
@@ -334,12 +369,23 @@ async function buildChannelSummaryRows({
     return column;
   });
 
-  return [
-    columns.map((column) => column.label),
-    ...summaries.map((summary) =>
-      columns.map((column) => getChannelSummaryCell(column.id, summary, startDate, endDate))
-    )
-  ];
+  const missingRanges = await getMissingYoutubeAnalyticsRanges({
+    channels,
+    endDate,
+    requireRevenue,
+    startDate
+  });
+
+  return {
+    hasData: hasUsableReportData(channelMetricRows, contentTypeMetricRows),
+    isPartial: missingRanges.length > 0,
+    rows: [
+      columns.map((column) => column.label),
+      ...summaries.map((summary) =>
+        columns.map((column) => getChannelSummaryCell(column.id, summary, startDate, endDate))
+      )
+    ]
+  };
 }
 
 async function buildChannelCompareRows({
@@ -360,28 +406,47 @@ async function buildChannelCompareRows({
   await ensureYoutubeAnalyticsRangeData({
     channels,
     endDate: primaryEndDate,
+    postSyncCheckAttempts: 1,
     startDate: primaryStartDate,
-    storePeriodBreakdowns: false
+    storePeriodBreakdowns: false,
+    throwOnIncomplete: false
   });
   await ensureYoutubeAnalyticsRangeData({
     channels,
     endDate: comparisonEndDate,
+    postSyncCheckAttempts: 1,
     startDate: comparisonStartDate,
-    storePeriodBreakdowns: false
+    storePeriodBreakdowns: false,
+    throwOnIncomplete: false
   });
-  if (hasChannelCompareRevenueColumns(columnIds)) {
+  const requireRevenue = hasChannelCompareRevenueColumns(columnIds);
+  if (requireRevenue) {
     await Promise.all([
       ensureRevenueMetricsForRange({ channels, endDate: primaryEndDate, startDate: primaryStartDate }),
       ensureRevenueMetricsForRange({ channels, endDate: comparisonEndDate, startDate: comparisonStartDate })
     ]);
   }
 
-  const [primarySummaries, comparisonSummaries] = await Promise.all([
+  const [primaryResult, comparisonResult] = await Promise.all([
     buildChannelSummaries(channels, primaryStartDate, primaryEndDate),
     buildChannelSummaries(channels, comparisonStartDate, comparisonEndDate)
   ]);
+  const [primaryMissingRanges, comparisonMissingRanges] = await Promise.all([
+    getMissingYoutubeAnalyticsRanges({
+      channels,
+      endDate: primaryEndDate,
+      requireRevenue,
+      startDate: primaryStartDate
+    }),
+    getMissingYoutubeAnalyticsRanges({
+      channels,
+      endDate: comparisonEndDate,
+      requireRevenue,
+      startDate: comparisonStartDate
+    })
+  ]);
   const comparisonByChannelId = new Map(
-    comparisonSummaries.map((summary) => [summary.channel.channelId, summary])
+    comparisonResult.summaries.map((summary) => [summary.channel.channelId, summary])
   );
   const selectedColumns = columnIds.map((columnId) => {
     const column = CHANNEL_COMPARE_COLUMNS.find((candidate) => candidate.id === columnId);
@@ -396,15 +461,19 @@ async function buildChannelCompareRows({
   };
   const headers = selectedColumns.flatMap((column) => getChannelCompareHeaders(column.id));
 
-  return [
-    headers,
-    ...primarySummaries.map((primary) => {
-      const comparison = comparisonByChannelId.get(primary.channel.channelId) ?? createChannelSummary(primary.channel);
-      return selectedColumns.flatMap((column) =>
-        getChannelCompareCells(column.id, primary, comparison, dates).map((cell) => cell.value)
-      );
-    })
-  ];
+  return {
+    hasData: primaryResult.hasData || comparisonResult.hasData,
+    isPartial: primaryMissingRanges.length > 0 || comparisonMissingRanges.length > 0,
+    rows: [
+      headers,
+      ...primaryResult.summaries.map((primary) => {
+        const comparison = comparisonByChannelId.get(primary.channel.channelId) ?? createChannelSummary(primary.channel);
+        return selectedColumns.flatMap((column) =>
+          getChannelCompareCells(column.id, primary, comparison, dates).map((cell) => cell.value)
+        );
+      })
+    ]
+  };
 }
 
 async function buildChannelSummaries(
@@ -450,7 +519,10 @@ async function buildChannelSummaries(
   assignRanks(summaries, "netSubscribers", (summary) => calculateNetSubscribers(summary.totals));
   assignRanks(summaries, "rpm", (summary) => calculateRevenuePerThousandViews(summary.totals));
 
-  return summaries;
+  return {
+    hasData: hasUsableReportData(channelMetricRows, contentTypeMetricRows),
+    summaries
+  };
 }
 
 type ChannelSummaryMetricRow = {
@@ -565,9 +637,31 @@ async function ensureRevenueMetricsForRange({
     channels,
     endDate,
     forceSync: true,
+    postSyncCheckAttempts: 1,
     startDate,
-    storePeriodBreakdowns: false
+    storePeriodBreakdowns: false,
+    throwOnIncomplete: false
   });
+}
+
+function hasUsableReportData(
+  channelMetricRows: ChannelSummaryMetricRow[],
+  contentTypeMetricRows: ChannelSummaryContentTypeRow[]
+) {
+  return (
+    channelMetricRows.some(
+      (row) =>
+        toNumber(row.views) > 0 ||
+        toNumber(row.estimated_minutes_watched) > 0 ||
+        toNumber(row.subscribers_gained) > 0 ||
+        toNumber(row.subscribers_lost) > 0 ||
+        toNumber(row.estimated_revenue) > 0 ||
+        toNumber(row.estimated_ad_revenue) > 0 ||
+        toNumber(row.gross_revenue) > 0 ||
+        toNumber(row.monetized_playbacks) > 0 ||
+        toNumber(row.ad_impressions) > 0
+    ) || contentTypeMetricRows.some((row) => toNumber(row.views) > 0)
+  );
 }
 
 async function hasStoredRevenueSignal(channels: StoredYoutubeManagedChannel[], startDate: string, endDate: string) {
@@ -955,19 +1049,25 @@ function buildReportRows(
   ];
 }
 
-function buildWorkbookResponse(rows: XlsxCellValue[][], filename: string, sheetName: string) {
+function buildWorkbookResponse(
+  rows: XlsxCellValue[][],
+  filename: string,
+  sheetName: string,
+  warning?: string
+) {
   const workbook = buildXlsxWorkbook({
     columnWidth: REPORT_COLUMN_WIDTH,
     rows,
     sheetName
   });
 
-  return new Response(new Uint8Array(workbook), {
-    headers: {
-      "Content-Disposition": `attachment; filename="${filename}.xlsx"`,
-      "Content-Type": EXCEL_MIME_TYPE
-    }
+  const headers = new Headers({
+    "Content-Disposition": `attachment; filename="${filename}.xlsx"`,
+    "Content-Type": EXCEL_MIME_TYPE
   });
+  if (warning) headers.set("X-Channel-Pulse-Warning", warning);
+
+  return new Response(new Uint8Array(workbook), { headers });
 }
 
 function reportSheetName(report: ReportType) {
