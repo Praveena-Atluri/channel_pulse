@@ -694,11 +694,17 @@ export function MonthlyTargetsDashboard({
                           className="h-9 w-full min-w-32 rounded-md border bg-background px-2 text-sm font-semibold outline-none ring-offset-background focus:ring-2 focus:ring-ring"
                           inputMode="decimal"
                         />
-                        <div className="mt-1 text-[11px] font-semibold text-muted-foreground">
-                          Base {formatMetricValue(metric.key, row.baseline[metric.key])}
-                          {baselineSource === "highest-in-year" && row.baselineSourceMonths[metric.key] ? (
-                            <span> · {formatShortMonthLabel(row.baselineSourceMonths[metric.key])}</span>
-                          ) : null}
+                        <div className="mt-1 flex items-start justify-between gap-2 text-[11px] font-semibold text-muted-foreground">
+                          <span className="min-w-0">
+                            Base {formatMetricValue(metric.key, row.baseline[metric.key])}
+                            {baselineSource === "highest-in-year" && row.baselineSourceMonths[metric.key] ? (
+                              <span> · {formatShortMonthLabel(row.baselineSourceMonths[metric.key])}</span>
+                            ) : null}
+                          </span>
+                          <TargetIncreasePercent
+                            baseline={row.baseline[metric.key]}
+                            target={row.target[metric.key]}
+                          />
                         </div>
                       </td>
                     ))}
@@ -1125,6 +1131,24 @@ function getProgressBarClass(percent: number) {
 
 function formatPercent(value: number) {
   return `${formatExportDecimal(value, 1)}%`;
+}
+
+function TargetIncreasePercent({ baseline, target }: { baseline: number; target: string }) {
+  const trimmedTarget = target.trim();
+  if (!trimmedTarget) return null;
+
+  const targetValue = Number(trimmedTarget);
+  if (!Number.isFinite(targetValue) || targetValue < 0) return null;
+
+  const percent = calculateTargetIncreasePercent(baseline, targetValue);
+  if (percent === null) return null;
+
+  return (
+    <span className="shrink-0 tabular-nums text-foreground" title="Target increase from base">
+      {percent > 0 ? "+" : ""}
+      {formatPercent(percent)}
+    </span>
+  );
 }
 
 function getChannelPieColor(index: number) {

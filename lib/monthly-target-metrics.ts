@@ -208,7 +208,7 @@ export function calculateTargetIncreasePercent(baseline: number, target: number 
   if (target === null) return null;
   if (baseline === 0) return target === 0 ? 0 : null;
 
-  return Math.round(((target - baseline) / baseline) * 1000) / 10;
+  return Math.round(((target - baseline) / Math.abs(baseline)) * 1000) / 10;
 }
 
 export function normalizeTargetValue(metric: MonthlyTargetMetric, value: unknown) {
@@ -218,7 +218,9 @@ export function normalizeTargetValue(metric: MonthlyTargetMetric, value: unknown
 
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${getMetricLabel(metric)} target must be a non-negative number.`);
+    throw new Error(
+      `${getMetricLabel(metric)} target: only positive numeric values are allowed. Commas are not allowed.`
+    );
   }
 
   return roundTargetValue(metric, parsed);

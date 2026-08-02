@@ -73,6 +73,7 @@ test("calculates percent targets with metric-specific rounding", () => {
 test("calculates the increase from baseline to target for exports", () => {
   assert.equal(calculateTargetIncreasePercent(100, 125), 25);
   assert.equal(calculateTargetIncreasePercent(80, 72), -10);
+  assert.equal(calculateTargetIncreasePercent(-136, 200), 247.1);
   assert.equal(calculateTargetIncreasePercent(0, 0), 0);
   assert.equal(calculateTargetIncreasePercent(0, 10), null);
   assert.equal(calculateTargetIncreasePercent(100, null), null);
@@ -82,7 +83,14 @@ test("normalizes blank targets as null and rejects invalid values", () => {
   assert.equal(normalizeTargetValue("longViews", ""), null);
   assert.equal(normalizeTargetValue("watchHours", "10.24"), 10.2);
   assert.equal(normalizeTargetValue("estimatedRevenue", "10.247"), 10.25);
-  assert.throws(() => normalizeTargetValue("longVideosToPublish", "-1"), /non-negative/);
+  assert.throws(
+    () => normalizeTargetValue("longVideosToPublish", "-1"),
+    /only positive numeric values are allowed\. Commas are not allowed/
+  );
+  assert.throws(
+    () => normalizeTargetValue("shortViews", "33,400"),
+    /only positive numeric values are allowed\. Commas are not allowed/
+  );
 });
 
 test("only exposes revenue targets to admins", () => {
