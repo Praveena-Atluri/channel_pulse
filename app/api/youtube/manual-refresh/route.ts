@@ -11,7 +11,7 @@ import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels
 import { syncYoutubeCmsAnalytics } from "@/lib/youtube-performance-sync";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 const SYNC_CONCURRENCY = 2;
 let manualRefreshInProgress = false;
