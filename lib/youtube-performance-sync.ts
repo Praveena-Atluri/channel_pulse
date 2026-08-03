@@ -49,8 +49,6 @@ const REVENUE_METRIC_SETS = [
   ["estimatedRevenue"]
 ];
 
-const CTR_METRIC_SETS = [["impressionsClickThroughRate"], ["impressionClickThroughRate"]];
-
 const CONTENT_TYPE_METRIC_SETS = [
   ["views", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks"],
   ["views", "estimatedMinutesWatched", "estimatedRevenue"],
@@ -540,7 +538,7 @@ async function fetchChannelReports(input: {
     : Promise.resolve({ metadata: [], metrics: [] });
 
   try {
-    const [channelCore, channelRevenue, channelCtr, contentTypeReport, countryReportGroup, videoReportGroup] = await Promise.all([
+    const [channelCore, channelRevenue, contentTypeReport, countryReportGroup, videoReportGroup] = await Promise.all([
       fetchAnalyticsReportWithFallback({
         accessToken: input.accessToken,
         config: input.config,
@@ -573,21 +571,6 @@ async function fetchChannelReports(input: {
             config: input.config,
             startDate: input.startDate,
             endDate: input.endDate,
-            dimensions: ["day"],
-            metricSets: CTR_METRIC_SETS,
-            filters: channelFilter,
-            sort: ["day"]
-          }),
-        `${input.channelId} CTR`,
-        input.warnings
-      ),
-      fetchOptionalReport(
-        () =>
-          fetchAnalyticsReportWithFallback({
-            accessToken: input.accessToken,
-            config: input.config,
-            startDate: input.startDate,
-            endDate: input.endDate,
             dimensions: ["day", "creatorContentType"],
             metricSets: CONTENT_TYPE_METRIC_SETS,
             filters: channelFilter,
@@ -601,7 +584,7 @@ async function fetchChannelReports(input: {
     ]);
 
     return {
-      channelMetrics: withChannelId(mergeReports(["day"], channelCore, channelRevenue, channelCtr), input.channelId),
+      channelMetrics: withChannelId(mergeReports(["day"], channelCore, channelRevenue), input.channelId),
       contentTypeMetrics: withChannelId(
         rowsFromReport(["day", "creatorContentType"], contentTypeReport),
         input.channelId

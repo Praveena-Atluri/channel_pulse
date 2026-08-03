@@ -3,7 +3,9 @@ import { createDatabaseAdminClient } from "@/lib/database";
 import { isYouTubeSyncConfigured } from "@/lib/youtube-channel-sources";
 import { ensureYoutubeAnalyticsRangeData } from "@/lib/youtube-auto-sync";
 import {
+  getPreviousMonthRefreshCutoff,
   getLoginSyncScope,
+  isMetricUpdateBeforeCutoff,
   isLoginSyncFresh
 } from "@/lib/login-sync-utils";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
@@ -41,6 +43,7 @@ export type LoginYoutubeSyncState = {
 
 const inFlightLoginSyncs = new Map<string, Promise<void>>();
 const LOGIN_SYNC_RUNNING_LEASE_MS = 15 * 60 * 1000;
+const LOGIN_SYNC_METRIC_PAGE_SIZE = 1000;
 
 export async function runLoginYoutubeSync(_account: ChannelPulseAccount) {
   if (!isYouTubeSyncConfigured()) {
@@ -65,7 +68,16 @@ export async function runLoginYoutubeSync(_account: ChannelPulseAccount) {
   }
 
   const syncRanges = getLoginSyncAnalyticsRanges();
-  const key = `${syncScope}|${syncRanges.map((range) => `${range.startDate}:${range.endDate}`).join("|")}`;
+  const previousMonthRange = syncRanges[1];
+  if (
+    previousMonthRange &&
+    (await hasPreviousMonthMetricUpdatedBeforeCutoff(db, channelIds, previousMonthRange, new Date()))
+  ) {
+    previousMonthRange.forceSync = true;
+  }
+  const key = `${syncScope}|${syncRanges
+    .map((range) => `${range.startDate}:${range.endDate}:${range.forceSync ? "force" : "missing"}`)
+    .join("|")}`;
   const existingSync = inFlightLoginSyncs.get(key);
   if (existingSync) {
     await existingSync;
@@ -154,6 +166,40 @@ export function getLoginSyncAnalyticsRanges(now = new Date()): LoginSyncAnalytic
 
 export function getLoginTodayDate(now = new Date()) {
   return normalizeReportDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())));
+}
+
+async function hasPreviousMonthMetricUpdatedBeforeCutoff(
+  db: ReturnType<typeof createDatabaseAdminClient>,
+  channelIds: string[],
+  range: Pick<LoginSyncAnalyticsRange, "endDate" | "startDate">,
+  now: Date
+) {
+  const cutoff = getPreviousMonthRefreshCutoff(now);
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await db
+      .from("youtube_channel_daily_metrics")
+      .select("updated_at")
+      .in("channel_id", channelIds)
+      .gte("day", range.startDate)
+      .lte("day", range.endDate)
+      .order("updated_at", { ascending: true })
+      .range(offset, offset + LOGIN_SYNC_METRIC_PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const rows = (data ?? []) as Array<{ updated_at: string | null }>;
+    if (rows.some((row) => isMetricUpdateBeforeCutoff(row.updated_at, cutoff))) {
+      return true;
+    }
+
+    if (rows.length < LOGIN_SYNC_METRIC_PAGE_SIZE) {
+      return false;
+    }
+
+    offset += LOGIN_SYNC_METRIC_PAGE_SIZE;
+  }
 }
 
 async function getLoginSyncState(

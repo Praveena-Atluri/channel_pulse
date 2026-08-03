@@ -9,6 +9,7 @@ import {
   Film,
   GitCompareArrows,
   LoaderCircle,
+  RefreshCcw,
   Target
 } from "lucide-react";
 import Link from "next/link";
@@ -72,6 +73,13 @@ const dashboardLinks = [
     title: "Daily Targets",
     description: "Set per-channel daily long and short publishing targets.",
     Icon: CalendarCheck,
+    adminOnly: true
+  },
+  {
+    href: "/manual-refresh",
+    title: "Manual Data Refresh",
+    description: "Force-refresh stored YouTube analytics for selected channels and dates.",
+    Icon: RefreshCcw,
     adminOnly: true
   }
 ] as const;

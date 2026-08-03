@@ -1,5 +1,17 @@
 export const LOGIN_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 
+export function getPreviousMonthRefreshCutoff(now = new Date()) {
+  const cutoffDay = Math.min(now.getUTCDate(), 4);
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), cutoffDay));
+}
+
+export function isMetricUpdateBeforeCutoff(updatedAt: string | null | undefined, cutoff: Date) {
+  if (!updatedAt) return true;
+
+  const updatedAtTime = new Date(updatedAt).getTime();
+  return !Number.isFinite(updatedAtTime) || updatedAtTime < cutoff.getTime();
+}
+
 export function isLoginSyncFresh(lastSyncedAt: string | null | undefined, now = new Date()) {
   if (!lastSyncedAt) return false;
 
