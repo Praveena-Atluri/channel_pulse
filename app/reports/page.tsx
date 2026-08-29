@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { canAccountManageDashboard, canAccountViewRevenue, getAccountChannelAccess } from "@/lib/auth";
+import { getEditableTargetMonths } from "@/lib/monthly-target-metrics";
 import { requireCurrentAccount } from "@/lib/server-auth";
 import { listStoredYoutubeManagedChannels } from "@/lib/youtube-managed-channels";
 import { getDefaultReportMonth, getMonthDateRange, getPreviousMonth } from "@/lib/youtube-performance-utils";
@@ -38,6 +39,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       ? storedChannels
       : storedChannels.filter((channel) => access.channelIds?.includes(channel.channelId));
   const selectedMonth = isValidReportMonth(params.month) ? params.month : getDefaultReportMonth();
+  const defaultTargetMonth = isValidReportMonth(params.month) ? params.month : getEditableTargetMonths()[0];
   const defaultDateRange = getMonthDateRange(selectedMonth);
   const defaultComparisonDateRange = getMonthDateRange(getPreviousMonth(selectedMonth));
 
@@ -73,6 +75,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <ReportDownloadPicker
           canViewRevenue={canAccountViewRevenue(account)}
           channels={channels}
+          defaultMonth={defaultTargetMonth}
           defaultComparisonEndDate={defaultComparisonDateRange.analyticsEndDate}
           defaultComparisonStartDate={defaultComparisonDateRange.startDate}
           defaultRangeEndDate={defaultDateRange.analyticsEndDate}

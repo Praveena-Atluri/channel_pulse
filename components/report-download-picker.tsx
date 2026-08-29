@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ChannelCompareReportDownload } from "@/components/channel-compare-report-download";
 import { ChannelSummaryReportDownload } from "@/components/channel-summary-report-download";
+import { TargetAchievementReportDownload } from "@/components/target-achievement-report-download";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ManagedChannel } from "@/lib/youtube-performance";
 
@@ -15,10 +16,11 @@ type ReportDownloadPickerProps = {
   defaultRangeStartDate: string;
   defaultComparisonEndDate: string;
   defaultComparisonStartDate: string;
+  defaultMonth: string;
   schemaReady: boolean;
 };
 
-type ReportKind = "range" | "compare";
+type ReportKind = "range" | "compare" | "target-achievement";
 
 export function ReportDownloadPicker({
   canViewRevenue,
@@ -27,6 +29,7 @@ export function ReportDownloadPicker({
   defaultRangeStartDate,
   defaultComparisonEndDate,
   defaultComparisonStartDate,
+  defaultMonth,
   schemaReady
 }: ReportDownloadPickerProps) {
   const [reportKind, setReportKind] = useState<ReportKind>("range");
@@ -49,6 +52,7 @@ export function ReportDownloadPicker({
           >
             <option value="range">Range report</option>
             <option value="compare">Compare report</option>
+            <option value="target-achievement">Target vs Achievement</option>
           </select>
         </label>
 
@@ -60,7 +64,7 @@ export function ReportDownloadPicker({
             defaultStartDate={defaultRangeStartDate}
             schemaReady={schemaReady}
           />
-        ) : (
+        ) : reportKind === "compare" ? (
           <ChannelCompareReportDownload
             canViewRevenue={canViewRevenue}
             channels={channels}
@@ -68,6 +72,12 @@ export function ReportDownloadPicker({
             defaultComparisonStartDate={defaultComparisonStartDate}
             defaultPrimaryEndDate={defaultRangeEndDate}
             defaultPrimaryStartDate={defaultRangeStartDate}
+            schemaReady={schemaReady}
+          />
+        ) : (
+          <TargetAchievementReportDownload
+            channels={channels}
+            defaultMonth={defaultMonth}
             schemaReady={schemaReady}
           />
         )}

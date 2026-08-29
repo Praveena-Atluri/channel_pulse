@@ -25,6 +25,17 @@ import {
   type ChannelSummaryColumnId
 } from "@/lib/channel-summary-report";
 import { createDatabaseAdminClient } from "@/lib/database";
+import {
+  getDefaultMonthlyTargetBaselineSource,
+  getTargetBaselineMonth,
+  getVisibleMonthlyTargetMetrics,
+  isPublishingMonthlyTargetMetric,
+  type MonthlyTargetMetric
+} from "@/lib/monthly-target-metrics";
+import {
+  getMonthlyTargetDashboardDataSafe,
+  type MonthlyTargetDashboardRow
+} from "@/lib/monthly-targets";
 import { listStoredYoutubeManagedChannels, type StoredYoutubeManagedChannel } from "@/lib/youtube-managed-channels";
 import {
   getYoutubePerformanceDashboard,
@@ -45,7 +56,14 @@ import { buildXlsxWorkbook, type XlsxCellValue } from "@/lib/xlsx-export";
 
 export const dynamic = "force-dynamic";
 
-type ReportType = "summary" | "formats" | "countries" | "videos" | "channel-summary" | "channel-compare";
+type ReportType =
+  | "summary"
+  | "formats"
+  | "countries"
+  | "videos"
+  | "channel-summary"
+  | "channel-compare"
+  | "target-achievement";
 
 const REPORT_TYPES = new Set<ReportType>([
   "summary",
@@ -53,7 +71,8 @@ const REPORT_TYPES = new Set<ReportType>([
   "countries",
   "videos",
   "channel-summary",
-  "channel-compare"
+  "channel-compare",
+  "target-achievement"
 ]);
 const DB_PAGE_SIZE = 1000;
 const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -78,7 +97,8 @@ export async function GET(request: NextRequest) {
   if (
     !canAccountViewRevenue(account) &&
     report !== "channel-summary" &&
-    report !== "channel-compare"
+    report !== "channel-compare" &&
+    report !== "target-achievement"
   ) {
     return NextResponse.json(
       { error: "This report includes revenue and is unavailable for this account." },
@@ -92,6 +112,10 @@ export async function GET(request: NextRequest) {
 
   if (report === "channel-compare") {
     return buildChannelCompareResponse(request, account);
+  }
+
+  if (report === "target-achievement") {
+    return buildTargetAchievementResponse(request, account);
   }
 
   const filters = normalizeYoutubePerformanceFilters({
@@ -126,6 +150,69 @@ export async function GET(request: NextRequest) {
   ].join("-");
 
   return buildWorkbookResponse(rows, filename, reportSheetName(report));
+}
+
+async function buildTargetAchievementResponse(request: NextRequest, account: ChannelPulseAccount) {
+  const month = request.nextUrl.searchParams.get("month") ?? "";
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    return NextResponse.json({ error: "Select a valid target month." }, { status: 400 });
+  }
+
+  const requestedChannelIds = uniqueValues(request.nextUrl.searchParams.getAll("channel"));
+  if (requestedChannelIds.length === 0) {
+    return NextResponse.json({ error: "Select at least one channel." }, { status: 400 });
+  }
+
+  const availableChannels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
+  const channelsById = new Map(availableChannels.map((channel) => [channel.channelId, channel]));
+  const selectedChannels = requestedChannelIds
+    .map((channelId) => channelsById.get(channelId))
+    .filter((channel): channel is StoredYoutubeManagedChannel => Boolean(channel));
+  if (selectedChannels.length !== requestedChannelIds.length) {
+    return NextResponse.json({ error: "Select valid channels." }, { status: 400 });
+  }
+
+  const canViewRevenue = canAccountViewRevenue(account);
+  const dashboard = await getMonthlyTargetDashboardDataSafe({
+    baselineMonth: getTargetBaselineMonth(month),
+    baselineSource: getDefaultMonthlyTargetBaselineSource(month),
+    canViewRevenue,
+    channels: selectedChannels,
+    month
+  });
+  if (!dashboard.schemaReady) {
+    return NextResponse.json(
+      { error: dashboard.errorMessage ?? "Monthly target data is unavailable." },
+      { status: 503 }
+    );
+  }
+
+  const metrics = getVisibleMonthlyTargetMetrics(false, month).filter(
+    (metric) => !isPublishingMonthlyTargetMetric(metric.key)
+  );
+  const rows: XlsxCellValue[][] = [
+    [
+      "Channel",
+      ...metrics.flatMap((metric) => [
+        `${metric.label} target`,
+        `${metric.label} achievement`,
+        "%"
+      ])
+    ]
+  ];
+
+  for (const channel of dashboard.rows) {
+    rows.push([
+      channel.channelTitle,
+      ...metrics.flatMap((metric) => buildTargetAchievementCells(channel, metric))
+    ]);
+  }
+
+  return buildWorkbookResponse(
+    rows,
+    ["channel-pulse", "target-vs-achievement", month, `${selectedChannels.length}-channels`].join("-"),
+    "Target vs Achievement"
+  );
 }
 
 async function buildChannelSummaryResponse(request: NextRequest, account: ChannelPulseAccount) {
@@ -1021,6 +1108,21 @@ function normalizeReportType(value: string | null): ReportType | null {
   return value && REPORT_TYPES.has(value as ReportType) ? (value as ReportType) : null;
 }
 
+function buildTargetAchievementCells(
+  channel: MonthlyTargetDashboardRow,
+  metric: { key: MonthlyTargetMetric; label: string }
+): XlsxCellValue[] {
+  const progress = channel.progress[metric.key];
+  const engagedMetric = metric.key === "shortEngagedViews" || metric.key === "longEngagedViews";
+  const achievementUnavailable = engagedMetric && !channel.engagedViewsAvailable;
+
+  return [
+    progress.target ?? "Not set",
+    achievementUnavailable ? "Unavailable" : progress.actual,
+    achievementUnavailable || progress.percent === null ? "Unavailable" : progress.percent
+  ];
+}
+
 function buildReportRows(
   report: ReportType,
   dashboard: Awaited<ReturnType<typeof getYoutubePerformanceDashboard>>,
@@ -1128,6 +1230,8 @@ function reportSheetName(report: ReportType) {
       return "Channel Summary";
     case "channel-compare":
       return "Compare Summary";
+    case "target-achievement":
+      return "Target vs Achievement";
   }
 }
 
