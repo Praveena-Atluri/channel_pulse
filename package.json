@@ -12,6 +12,7 @@
     "lint": "next lint",
     "db:schema:turso": "node --env-file=.env.local scripts/apply-turso-schema.mjs",
     "youtube:backfill": "node --env-file=.env.local scripts/backfill-youtube-analytics.cjs",
+    "youtube:backfill-engaged": "node --env-file=.env.local scripts/backfill-youtube-analytics.cjs --months=13 --include-current",
     "test": "node --test --experimental-strip-types tests/*.test.ts"
   },
   "dependencies": {

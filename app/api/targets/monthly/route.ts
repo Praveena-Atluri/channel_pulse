@@ -9,6 +9,7 @@ import {
 import {
   TARGET_PERCENT_PRESETS,
   getEditableMonthlyTargetMetrics,
+  getDefaultMonthlyTargetBaselineSource,
   getEditableTargetMonths,
   getTargetBaselineMonthOptionsFromAnchor,
   getVisibleMonthlyTargetMetrics,
@@ -64,8 +65,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ...dashboard,
     availableMonths: getEditableTargetMonths(),
-    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue),
-    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue),
+    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue, month),
+    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue, month),
     percentPresets: TARGET_PERCENT_PRESETS
   });
 }
@@ -129,8 +130,8 @@ export async function PUT(request: NextRequest) {
   return NextResponse.json({
     ...dashboard,
     availableMonths: getEditableTargetMonths(),
-    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue),
-    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue),
+    editableMetrics: getEditableMonthlyTargetMetrics(canViewRevenue, month),
+    metrics: getVisibleMonthlyTargetMetrics(canViewRevenue, month),
     percentPresets: TARGET_PERCENT_PRESETS
   });
 }
@@ -153,7 +154,11 @@ async function resolveBaselineSelection({
   return {
     month: baselineMonth,
     months: baselineMonths,
-    source: normalizeMonthlyTargetBaselineSource(requestedBaselineSource, baselineMonths)
+    source: normalizeMonthlyTargetBaselineSource(
+      requestedBaselineSource,
+      baselineMonths,
+      getDefaultMonthlyTargetBaselineSource(month)
+    )
   };
 }
 

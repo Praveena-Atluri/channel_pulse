@@ -272,21 +272,38 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
             />
           ) : null}
 
+          {dashboard.publicViewMethodologyWarning ? (
+            <StatusPanel
+              title="Public-view counting changed on August 24, 2026"
+              message="These ranges use different or mixed public-view definitions. Compare engaged views for accountable performance; public views are shown only as reach."
+            />
+          ) : null}
+
           {canShowComparisonData ? (
             <>
             <section
               className={
                 canViewRevenue
-                  ? "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4"
-                  : "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-3"
+                  ? "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-2 xl:grid-cols-5"
+                  : "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-4"
               }
             >
               <ComparisonMetricCard
-                title="Views"
+                title="Public Views"
                 rangeOneValue={formatCompactNumber(dashboard.deltas.views.current)}
                 rangeTwoValue={formatCompactNumber(dashboard.deltas.views.previous)}
                 delta={dashboard.deltas.views}
                 deltaLabel={formatSignedCompactNumber(dashboard.deltas.views.absolute)}
+                icon={Eye}
+              />
+              <ComparisonMetricCard
+                title="Engaged Views"
+                rangeOneValue={dashboard.primary.engagedViewsAvailable ? formatCompactNumber(dashboard.deltas.engagedViews.current) : "Unavailable"}
+                rangeTwoValue={dashboard.comparison.engagedViewsAvailable ? formatCompactNumber(dashboard.deltas.engagedViews.previous) : "Unavailable"}
+                delta={dashboard.deltas.engagedViews}
+                deltaLabel={dashboard.primary.engagedViewsAvailable && dashboard.comparison.engagedViewsAvailable
+                  ? formatSignedCompactNumber(dashboard.deltas.engagedViews.absolute)
+                  : "Backfill required"}
                 icon={Eye}
               />
               <ComparisonMetricCard
@@ -453,9 +470,18 @@ function ChannelMetricsByChannel({
               deltaFormatter: formatSignedCompactNumber,
               formatter: formatCompactNumber,
               icon: Eye,
-              label: "Views",
+              label: "Public views",
               primary: row.primary.views,
               comparison: row.comparison.views
+            },
+            {
+              delta: row.deltas.engagedViews.absolute,
+              deltaFormatter: formatSignedCompactNumber,
+              formatter: formatCompactNumber,
+              icon: Eye,
+              label: "Engaged views",
+              primary: row.primary.engagedViews,
+              comparison: row.comparison.engagedViews
             },
             {
               delta: row.deltas.watchTime.absolute / 60,
@@ -707,9 +733,9 @@ function ChannelBreakdownTable({
           <thead>
             <tr className="border-b text-xs font-black uppercase text-muted-foreground">
               <th className="px-3 py-2 text-left">Channel</th>
-              <th className="px-3 py-2 text-right">Range 1 Views</th>
-              <th className="px-3 py-2 text-right">Range 2 Views</th>
-              <th className="px-3 py-2 text-right">R2-R1 Views</th>
+              <th className="px-3 py-2 text-right">Range 1 Public Views</th>
+              <th className="px-3 py-2 text-right">Range 2 Public Views</th>
+              <th className="px-3 py-2 text-right">R2-R1 Public Views</th>
               <th className="px-3 py-2 text-right">Range 1 Watch Hrs</th>
               <th className="px-3 py-2 text-right">Range 2 Watch Hrs</th>
               <th className="px-3 py-2 text-right">R2-R1 Watch Hrs</th>

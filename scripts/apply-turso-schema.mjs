@@ -32,6 +32,16 @@ try {
 
 async function ensureCompatibilityColumns() {
   const additions = [
+    ...[
+      "youtube_channel_daily_metrics",
+      "youtube_video_daily_metrics",
+      "youtube_content_type_daily_metrics",
+      "youtube_country_daily_metrics"
+    ].map((table) => ({
+      table,
+      name: "engaged_views",
+      sql: `alter table ${table} add column engaged_views integer`
+    })),
     {
       table: "youtube_channel_daily_metrics",
       name: "impressions_click_through_rate",
@@ -41,6 +51,16 @@ async function ensureCompatibilityColumns() {
       table: "youtube_video_catalog",
       name: "privacy_status",
       sql: "alter table youtube_video_catalog add column privacy_status text not null default 'unknown' check (privacy_status in ('public', 'unlisted', 'private', 'unknown'))"
+    },
+    {
+      table: "youtube_monthly_channel_targets",
+      name: "short_engaged_views_target",
+      sql: "alter table youtube_monthly_channel_targets add column short_engaged_views_target integer check (short_engaged_views_target is null or short_engaged_views_target >= 0)"
+    },
+    {
+      table: "youtube_monthly_channel_targets",
+      name: "long_engaged_views_target",
+      sql: "alter table youtube_monthly_channel_targets add column long_engaged_views_target integer check (long_engaged_views_target is null or long_engaged_views_target >= 0)"
     },
     {
       table: "youtube_monthly_channel_targets",

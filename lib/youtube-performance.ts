@@ -10,6 +10,7 @@ import {
   addMetricTotals,
   buildAvailableReportMonths,
   calculateNetSubscribers,
+  comparisonUsesDifferentPublicViewMethodologies,
   createEmptyTotals,
   getCurrentReportMonth,
   getDefaultReportMonth,
@@ -73,17 +74,20 @@ export type YoutubePerformanceDashboardData = {
   channels: ManagedChannel[];
   filters: YoutubePerformanceFilters;
   currentTotals: MetricTotals;
+  engagedViewsAvailable: boolean;
+  previousEngagedViewsAvailable: boolean;
   previousTotals: MetricTotals;
   channelSubscriberTotals: MetricTotals;
   previousChannelSubscriberTotals: MetricTotals;
   growth: {
     views: number;
+    engagedViews: number;
     watchTime: number;
     revenue: number;
     netSubscribers: number;
   };
   availableContentTypes: VideoContentType[];
-  longShortSplit: Array<{ contentType: VideoContentType; views: number; revenue: number }>;
+  longShortSplit: Array<{ contentType: VideoContentType; views: number; engagedViews: number; revenue: number }>;
   countryRevenueBreakdown: CountryRevenueRow[];
   cohortSummary: {
     old: MetricTotals;
@@ -112,10 +116,12 @@ export type YoutubeComparisonDashboardData = {
   comparison: ComparisonPeriodData;
   deltas: {
     views: ComparisonDelta;
+    engagedViews: ComparisonDelta;
     watchTime: ComparisonDelta;
     subscribers: ComparisonDelta;
     revenue: ComparisonDelta;
   };
+  publicViewMethodologyWarning: boolean;
   availableContentTypes: VideoContentType[];
   contentTypeComparison: Array<{
     contentType: VideoContentType;
@@ -147,6 +153,7 @@ export type ComparisonPeriodData = {
   videoRows: VideoPerformanceRow[];
   contentTypeRows: ContentTypeMetricRow[];
   hasData: boolean;
+  engagedViewsAvailable: boolean;
 };
 
 export type ComparisonDelta = {
@@ -164,6 +171,7 @@ export type ComparisonChannelBreakdownRow = {
   comparison: MetricTotals;
   deltas: {
     views: ComparisonDelta;
+    engagedViews: ComparisonDelta;
     watchTime: ComparisonDelta;
     subscribers: ComparisonDelta;
     revenue: ComparisonDelta;
@@ -174,6 +182,7 @@ type ChannelMetricRow = {
   day: string;
   channel_id: string;
   views: number | string | null;
+  engaged_views: number | string | null;
   estimated_minutes_watched: number | string | null;
   subscribers_gained: number | string | null;
   subscribers_lost: number | string | null;
@@ -190,6 +199,7 @@ type VideoMetricRow = {
   channel_id: string;
   video_id: string;
   views: number | string | null;
+  engaged_views: number | string | null;
   estimated_minutes_watched: number | string | null;
   estimated_revenue: number | string | null;
   estimated_ad_revenue: number | string | null;
@@ -215,6 +225,7 @@ type ContentTypeMetricRow = {
   channel_id: string;
   content_type: VideoContentType;
   views: number | string | null;
+  engaged_views: number | string | null;
   estimated_minutes_watched: number | string | null;
   estimated_revenue: number | string | null;
   estimated_ad_revenue: number | string | null;
@@ -227,6 +238,7 @@ type CountryMetricRow = {
   channel_id: string;
   country_code: string;
   views: number | string | null;
+  engaged_views: number | string | null;
   estimated_minutes_watched: number | string | null;
   estimated_revenue: number | string | null;
   estimated_ad_revenue: number | string | null;
@@ -341,11 +353,14 @@ export async function getYoutubePerformanceDashboard(
         channels,
         filters,
         currentTotals: channelCurrentTotals,
+        engagedViewsAvailable: currentChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined),
+        previousEngagedViewsAvailable: previousChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined),
         previousTotals: channelPreviousTotals,
         channelSubscriberTotals: channelCurrentTotals,
         previousChannelSubscriberTotals: channelPreviousTotals,
         growth: {
           views: safePercentChange(channelCurrentTotals.views, channelPreviousTotals.views),
+          engagedViews: safePercentChange(channelCurrentTotals.engagedViews, channelPreviousTotals.engagedViews),
           watchTime: safePercentChange(
             channelCurrentTotals.estimatedMinutesWatched,
             channelPreviousTotals.estimatedMinutesWatched
@@ -425,11 +440,20 @@ export async function getYoutubePerformanceDashboard(
       channels,
       filters,
       currentTotals: scopedCurrentTotals,
+      engagedViewsAvailable:
+        filters.contentType === "all"
+          ? currentChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
+          : currentContentTypeRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined),
+      previousEngagedViewsAvailable:
+        filters.contentType === "all"
+          ? previousChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
+          : previousContentTypeRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined),
       previousTotals: scopedPreviousTotals,
       channelSubscriberTotals: channelCurrentTotals,
       previousChannelSubscriberTotals: channelPreviousTotals,
       growth: {
         views: safePercentChange(scopedCurrentTotals.views, scopedPreviousTotals.views),
+        engagedViews: safePercentChange(scopedCurrentTotals.engagedViews, scopedPreviousTotals.engagedViews),
         watchTime: safePercentChange(
           scopedCurrentTotals.estimatedMinutesWatched,
           scopedPreviousTotals.estimatedMinutesWatched
@@ -514,7 +538,8 @@ export async function getYoutubeComparisonDashboard(
           channelTotals: primaryChannelTotals,
           videoRows: [],
           contentTypeRows: [],
-          hasData: hasPrimaryData
+          hasData: hasPrimaryData,
+          engagedViewsAvailable: primaryChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
         },
         comparison: {
           label: "Range 2",
@@ -524,10 +549,12 @@ export async function getYoutubeComparisonDashboard(
           channelTotals: comparisonChannelTotals,
           videoRows: [],
           contentTypeRows: [],
-          hasData: hasComparisonData
+          hasData: hasComparisonData,
+          engagedViewsAvailable: comparisonChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
         },
         deltas: {
           views: buildComparisonDelta(primaryChannelTotals.views, comparisonChannelTotals.views),
+          engagedViews: buildComparisonDelta(primaryChannelTotals.engagedViews, comparisonChannelTotals.engagedViews),
           watchTime: buildComparisonDelta(
             primaryChannelTotals.estimatedMinutesWatched,
             comparisonChannelTotals.estimatedMinutesWatched
@@ -541,6 +568,10 @@ export async function getYoutubeComparisonDashboard(
             comparisonChannelTotals.estimatedRevenue
           )
         },
+        publicViewMethodologyWarning: comparisonUsesDifferentPublicViewMethodologies(
+          { startDate: filters.primaryStartDate, endDate: filters.primaryEndDate },
+          { startDate: filters.comparisonStartDate, endDate: filters.comparisonEndDate }
+        ),
         availableContentTypes: ["short", "long"],
         contentTypeComparison: [],
         channelBreakdown: buildComparisonChannelBreakdown({
@@ -594,7 +625,8 @@ export async function getYoutubeComparisonDashboard(
         channelTotals: primaryChannelTotals,
         videoRows: primaryVideos.filteredRows,
         contentTypeRows: primaryContentTypeRows,
-        hasData: hasPrimaryData
+        hasData: hasPrimaryData,
+        engagedViewsAvailable: primaryChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
       },
       comparison: {
         label: "Range 2",
@@ -604,10 +636,12 @@ export async function getYoutubeComparisonDashboard(
         channelTotals: comparisonChannelTotals,
         videoRows: comparisonVideos.filteredRows,
         contentTypeRows: comparisonContentTypeRows,
-        hasData: hasComparisonData
+        hasData: hasComparisonData,
+        engagedViewsAvailable: comparisonChannelRows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined)
       },
       deltas: {
         views: buildComparisonDelta(primaryTotals.views, comparisonTotals.views),
+        engagedViews: buildComparisonDelta(primaryTotals.engagedViews, comparisonTotals.engagedViews),
         watchTime: buildComparisonDelta(primaryTotals.estimatedMinutesWatched, comparisonTotals.estimatedMinutesWatched),
         subscribers: buildComparisonDelta(
           calculateNetSubscribers(primaryChannelTotals),
@@ -615,6 +649,10 @@ export async function getYoutubeComparisonDashboard(
         ),
         revenue: buildComparisonDelta(primaryTotals.estimatedRevenue, comparisonTotals.estimatedRevenue)
       },
+      publicViewMethodologyWarning: comparisonUsesDifferentPublicViewMethodologies(
+        { startDate: filters.primaryStartDate, endDate: filters.primaryEndDate },
+        { startDate: filters.comparisonStartDate, endDate: filters.comparisonEndDate }
+      ),
       availableContentTypes: buildAvailableContentTypes([...primaryContentTypeRows, ...comparisonContentTypeRows]),
       contentTypeComparison: buildContentTypeComparison(primaryContentTypeRows, comparisonContentTypeRows, filters),
       channelBreakdown: buildComparisonChannelBreakdown({
@@ -752,7 +790,7 @@ async function getChannelMetrics(
     let query = db
       .from("youtube_channel_daily_metrics")
       .select(
-        "day,channel_id,views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
+        "day,channel_id,views,engaged_views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
       )
       .gte("day", startDate)
       .lt("day", endDate)
@@ -788,7 +826,7 @@ async function getContentTypeMetrics(
     let query = db
       .from("youtube_content_type_daily_metrics")
       .select(
-        "day,channel_id,content_type,views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks"
+        "day,channel_id,content_type,views,engaged_views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks"
       )
       .gte("day", startDate)
       .lt("day", endDate)
@@ -825,7 +863,7 @@ async function getCountryMetrics(
     let query = db
       .from("youtube_country_daily_metrics")
       .select(
-        "day,channel_id,country_code,views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
+        "day,channel_id,country_code,views,engaged_views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
       )
       .eq("day", startDate)
       .order("day", { ascending: true })
@@ -949,7 +987,7 @@ async function getVideoMetricRows(
     let query = db
       .from("youtube_video_daily_metrics")
       .select(
-        "day,channel_id,video_id,views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
+        "day,channel_id,video_id,views,engaged_views,estimated_minutes_watched,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions,playback_based_cpm"
       )
       .eq("day", startDate)
       .order("day", { ascending: true })
@@ -1101,6 +1139,7 @@ function sumContentTypeMetrics(rows: ContentTypeMetricRow[], contentType: Conten
 
     addMetricTotals(totals, {
       views: toNumber(row.views),
+      engagedViews: toNumber(row.engaged_views),
       estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
       estimatedRevenue: toNumber(row.estimated_revenue),
       estimatedAdRevenue: toNumber(row.estimated_ad_revenue),
@@ -1133,6 +1172,7 @@ function getScopedTotals(
 function metricToTotals(row: VideoMetricRow): Partial<MetricTotals> {
   return {
     views: toNumber(row.views),
+    engagedViews: toNumber(row.engaged_views),
     estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
     estimatedRevenue: toNumber(row.estimated_revenue),
     estimatedAdRevenue: toNumber(row.estimated_ad_revenue),
@@ -1146,6 +1186,7 @@ function metricToTotals(row: VideoMetricRow): Partial<MetricTotals> {
 function channelMetricToTotals(row: ChannelMetricRow): Partial<MetricTotals> {
   return {
     views: toNumber(row.views),
+    engagedViews: toNumber(row.engaged_views),
     estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
     subscribersGained: toNumber(row.subscribers_gained),
     subscribersLost: toNumber(row.subscribers_lost),
@@ -1161,6 +1202,7 @@ function channelMetricToTotals(row: ChannelMetricRow): Partial<MetricTotals> {
 function contentTypeMetricToTotals(row: ContentTypeMetricRow): Partial<MetricTotals> {
   return {
     views: toNumber(row.views),
+    engagedViews: toNumber(row.engaged_views),
     estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
     estimatedRevenue: toNumber(row.estimated_revenue),
     estimatedAdRevenue: toNumber(row.estimated_ad_revenue),
@@ -1170,14 +1212,15 @@ function contentTypeMetricToTotals(row: ContentTypeMetricRow): Partial<MetricTot
 }
 
 function buildContentTypeSplit(rows: ContentTypeMetricRow[], filters: YoutubePerformanceFilters) {
-  const split = new Map<VideoContentType, { contentType: VideoContentType; views: number; revenue: number }>();
+  const split = new Map<VideoContentType, { contentType: VideoContentType; views: number; engagedViews: number; revenue: number }>();
 
   for (const row of rows) {
     if (filters.contentType !== "all" && row.content_type !== filters.contentType) continue;
     if (filters.cohort !== "all") continue;
 
-    const item = split.get(row.content_type) ?? { contentType: row.content_type, views: 0, revenue: 0 };
+    const item = split.get(row.content_type) ?? { contentType: row.content_type, views: 0, engagedViews: 0, revenue: 0 };
     item.views += toNumber(row.views);
+    item.engagedViews += toNumber(row.engaged_views);
     item.revenue += toNumber(row.estimated_revenue);
     split.set(row.content_type, item);
   }
@@ -1200,6 +1243,7 @@ function buildCountryRevenueBreakdown(rows: CountryMetricRow[]) {
 
     addMetricTotals(item, {
       views: toNumber(row.views),
+      engagedViews: toNumber(row.engaged_views),
       estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
       estimatedRevenue: toNumber(row.estimated_revenue),
       estimatedAdRevenue: toNumber(row.estimated_ad_revenue),
@@ -1257,6 +1301,7 @@ function buildComparisonChannelBreakdown({
         comparison,
         deltas: {
           views: buildComparisonDelta(primary.views, comparison.views),
+          engagedViews: buildComparisonDelta(primary.engagedViews, comparison.engagedViews),
           watchTime: buildComparisonDelta(primary.estimatedMinutesWatched, comparison.estimatedMinutesWatched),
           subscribers: buildComparisonDelta(calculateNetSubscribers(primary), calculateNetSubscribers(comparison)),
           revenue: buildComparisonDelta(primary.estimatedRevenue, comparison.estimatedRevenue)
@@ -1396,6 +1441,7 @@ function fillMissingChannelTotals(channelTotals: MetricTotals, fallbackTotals: M
   return {
     ...channelTotals,
     views: channelTotals.views || fallbackTotals.views,
+    engagedViews: channelTotals.engagedViews || fallbackTotals.engagedViews,
     estimatedMinutesWatched: channelTotals.estimatedMinutesWatched || fallbackTotals.estimatedMinutesWatched,
     estimatedRevenue: channelTotals.estimatedRevenue || fallbackTotals.estimatedRevenue,
     estimatedAdRevenue: channelTotals.estimatedAdRevenue || fallbackTotals.estimatedAdRevenue,
@@ -1407,6 +1453,7 @@ function fillMissingChannelTotals(channelTotals: MetricTotals, fallbackTotals: M
 function subtractMetricTotals(left: MetricTotals, right: MetricTotals) {
   return {
     views: Math.max(0, left.views - right.views),
+    engagedViews: Math.max(0, left.engagedViews - right.engagedViews),
     estimatedMinutesWatched: Math.max(0, left.estimatedMinutesWatched - right.estimatedMinutesWatched),
     subscribersGained: Math.max(0, left.subscribersGained - right.subscribersGained),
     subscribersLost: Math.max(0, left.subscribersLost - right.subscribersLost),
@@ -1439,7 +1486,7 @@ function formatCountryName(countryCode: string) {
 }
 
 function hasVideoPerformanceMetrics(row: VideoPerformanceRow) {
-  return row.views > 0 || row.estimatedMinutesWatched > 0 || row.estimatedRevenue > 0;
+  return row.views > 0 || row.engagedViews > 0 || row.estimatedMinutesWatched > 0 || row.estimatedRevenue > 0;
 }
 
 function buildAvailableMonths(latestMonth: string) {
@@ -1486,10 +1533,12 @@ function emptyDashboard(filters: YoutubePerformanceFilters): YoutubePerformanceD
     channels: [],
     filters,
     currentTotals: createEmptyTotals(),
+    engagedViewsAvailable: false,
+    previousEngagedViewsAvailable: false,
     previousTotals: createEmptyTotals(),
     channelSubscriberTotals: createEmptyTotals(),
     previousChannelSubscriberTotals: createEmptyTotals(),
-    growth: { views: 0, watchTime: 0, revenue: 0, netSubscribers: 0 },
+    growth: { views: 0, engagedViews: 0, watchTime: 0, revenue: 0, netSubscribers: 0 },
     availableContentTypes: ["short", "long"],
     longShortSplit: [],
     countryRevenueBreakdown: [],
@@ -1515,7 +1564,8 @@ function emptyComparisonDashboard(filters: YoutubeComparisonFilters): YoutubeCom
     channelTotals: createEmptyTotals(),
     videoRows: [],
     contentTypeRows: [],
-    hasData: false
+    hasData: false,
+    engagedViewsAvailable: false
   });
 
   return {
@@ -1526,10 +1576,15 @@ function emptyComparisonDashboard(filters: YoutubeComparisonFilters): YoutubeCom
     comparison: emptyPeriod("Range 2", filters.comparisonStartDate, filters.comparisonEndDate),
     deltas: {
       views: buildComparisonDelta(0, 0),
+      engagedViews: buildComparisonDelta(0, 0),
       watchTime: buildComparisonDelta(0, 0),
       subscribers: buildComparisonDelta(0, 0),
       revenue: buildComparisonDelta(0, 0)
     },
+    publicViewMethodologyWarning: comparisonUsesDifferentPublicViewMethodologies(
+      { startDate: filters.primaryStartDate, endDate: filters.primaryEndDate },
+      { startDate: filters.comparisonStartDate, endDate: filters.comparisonEndDate }
+    ),
     availableContentTypes: ["short", "long"],
     contentTypeComparison: [],
     channelBreakdown: [],

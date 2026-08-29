@@ -57,7 +57,7 @@ type WeeklyMode = "targets" | "compare";
 
 type WeeklyTrendMetricKey = keyof Pick<
   WeeklyMetricValues,
-  "estimatedRevenue" | "netSubscribers" | "views" | "watchHours"
+  "estimatedRevenue" | "netSubscribers" | "views" | "engagedViews" | "watchHours"
 >;
 
 type MonthlyWeeklyTargetWeekChartRow = {
@@ -84,7 +84,8 @@ const WEEKLY_TREND_METRICS: Array<{
   key: WeeklyTrendMetricKey;
   label: string;
 }> = [
-  { formatter: formatCompactNumber, key: "views", label: "Views" },
+  { formatter: formatCompactNumber, key: "views", label: "Public views" },
+  { formatter: formatCompactNumber, key: "engagedViews", label: "Engaged views" },
   { formatter: formatCompactNumber, key: "watchHours", label: "Watch hours" },
   { formatter: formatSignedNumber, key: "netSubscribers", label: "Net subscribers" },
   { formatter: formatCompactCurrency, key: "estimatedRevenue", label: "Estimated revenue" }
@@ -591,7 +592,7 @@ function MonthlyWeeklyTargetsResults({
   canViewRevenue: boolean;
   data: MonthlyTargetsDashboardState;
 }) {
-  const visibleMetrics = getVisibleMonthlyTargetMetrics(canViewRevenue);
+  const visibleMetrics = getVisibleMonthlyTargetMetrics(canViewRevenue, data.month);
   const targetMetricCount = data.rows.reduce(
     (total, row) => total + visibleMetrics.filter((metric) => row.target[metric.key] !== null).length,
     0
@@ -1218,13 +1219,17 @@ function WeeklyResults({
 }) {
   const summaryCards = canViewRevenue
     ? [
-        { label: "Views", value: formatCompactNumber(data.totals.current.views) },
+        { label: "Public views", value: formatCompactNumber(data.totals.current.views) },
+        { label: "Engaged views", value: data.totals.current.engagedViewsAvailable ? formatCompactNumber(data.totals.current.engagedViews) : "Unavailable" },
+        { label: "Engagement rate", value: formatNullablePercent(data.totals.current.engagementRate) },
         { label: "Watch hours", value: formatCompactNumber(data.totals.current.watchHours) },
         { label: "Estimated revenue", value: formatCurrency(data.totals.current.estimatedRevenue) },
         { label: "RPM", value: formatCurrency(data.totals.current.rpm) }
       ]
     : [
-        { label: "Views", value: formatCompactNumber(data.totals.current.views) },
+        { label: "Public views", value: formatCompactNumber(data.totals.current.views) },
+        { label: "Engaged views", value: data.totals.current.engagedViewsAvailable ? formatCompactNumber(data.totals.current.engagedViews) : "Unavailable" },
+        { label: "Engagement rate", value: formatNullablePercent(data.totals.current.engagementRate) },
         { label: "Watch hours", value: formatCompactNumber(data.totals.current.watchHours) },
         { label: "Net subscribers", value: formatSignedNumber(data.totals.current.netSubscribers) },
         {
@@ -1237,7 +1242,9 @@ function WeeklyResults({
   const weeklySummaryHeaders = canViewRevenue
     ? [
         "Channel",
-        "Views",
+        "Public Views",
+        "Engaged Views",
+        "Engagement Rate",
         "Watch Hours",
         "Net Subscribers",
         "Estimated Revenue",
@@ -1249,7 +1256,9 @@ function WeeklyResults({
       ]
     : [
         "Channel",
-        "Views",
+        "Public Views",
+        "Engaged Views",
+        "Engagement Rate",
         "Watch Hours",
         "Net Subscribers",
         "Long Videos Published",
@@ -1260,6 +1269,8 @@ function WeeklyResults({
       ? [
           row.channel.title,
           formatCompactNumber(row.current.views),
+          row.current.engagedViewsAvailable ? formatCompactNumber(row.current.engagedViews) : "Unavailable",
+          formatNullablePercent(row.current.engagementRate),
           formatCompactNumber(row.current.watchHours),
           formatSignedNumber(row.current.netSubscribers),
           formatCurrency(row.current.estimatedRevenue),
@@ -1272,6 +1283,8 @@ function WeeklyResults({
       : [
           row.channel.title,
           formatCompactNumber(row.current.views),
+          row.current.engagedViewsAvailable ? formatCompactNumber(row.current.engagedViews) : "Unavailable",
+          formatNullablePercent(row.current.engagementRate),
           formatCompactNumber(row.current.watchHours),
           formatSignedNumber(row.current.netSubscribers),
           formatCompactNumber(row.current.longVideosPublished),
@@ -1281,6 +1294,9 @@ function WeeklyResults({
 
   return (
     <div className="grid gap-4">
+      {data.publicViewMethodologyWarning ? (
+        <ErrorPanel message="This four-week comparison crosses August 24, 2026. Public-view counts use mixed definitions; use engaged views for accountable performance." />
+      ) : null}
       <section className="grid gap-4">
         <div>
           <div className="flex items-center gap-2 text-base font-black">
@@ -1830,7 +1846,7 @@ function isPublishingTargetMetric(metric: MonthlyTargetMetric) {
 }
 
 function isViewTargetMetric(metric: MonthlyTargetMetric) {
-  return metric === "shortViews" || metric === "longViews";
+  return metric === "shortViews" || metric === "longViews" || metric === "shortEngagedViews" || metric === "longEngagedViews";
 }
 
 function isWeeklyProgressTargetMetric(metric: MonthlyTargetMetric) {
@@ -1879,6 +1895,10 @@ function getPublishingGaugeClass(metric: MonthlyTargetMetric) {
 
 function formatTargetPercent(value: number) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function formatNullablePercent(value: number | null) {
+  return value === null ? "Unavailable" : formatTargetPercent(value);
 }
 
 function formatShortRange(range: { endDate: string; startDate: string }) {

@@ -9,6 +9,7 @@ import {
   createEmptyActualValues,
   createEmptyTargetValues,
   getEditableMonthlyTargetMetrics,
+  getDefaultMonthlyTargetBaselineSource,
   getEditableTargetMonths,
   getTargetBaselineCutoffMonth,
   getTargetBaselineMonth,
@@ -104,6 +105,18 @@ test("keeps publishing targets out of monthly target editing", () => {
   assert.equal(getEditableMonthlyTargetMetrics(true).some((metric) => metric.key === "shortVideosToPublish"), false);
   assert.equal(getEditableMonthlyTargetMetrics(true).some((metric) => metric.key === "longVideosToPublish"), false);
   assert.equal(getEditableMonthlyTargetMetrics(true).some((metric) => metric.key === "estimatedRevenue"), true);
+});
+
+test("uses explicit engaged-view targets from September 2026 onward", () => {
+  const augustMetrics = getEditableMonthlyTargetMetrics(true, "2026-08").map((metric) => metric.key);
+  const septemberMetrics = getEditableMonthlyTargetMetrics(true, "2026-09").map((metric) => metric.key);
+
+  assert.ok(augustMetrics.includes("shortViews"));
+  assert.ok(!augustMetrics.includes("shortEngagedViews"));
+  assert.ok(septemberMetrics.includes("shortEngagedViews"));
+  assert.ok(septemberMetrics.includes("longEngagedViews"));
+  assert.ok(!septemberMetrics.includes("shortViews"));
+  assert.equal(getDefaultMonthlyTargetBaselineSource("2026-09"), "last-three-months-average");
 });
 
 test("aggregates progress using only channels with targets for each metric", () => {

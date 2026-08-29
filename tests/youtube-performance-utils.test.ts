@@ -3,13 +3,16 @@ import test from "node:test";
 
 import {
   buildAvailableReportMonths,
+  calculateEngagementRate,
   calculateNetSubscribers,
   classifyVideoContentType,
+  comparisonUsesDifferentPublicViewMethodologies,
   getCurrentReportMonth,
   getMonthDateRange,
   getPreviousMonth,
   getVideoCohort,
   parseIsoDurationToSeconds,
+  rangeUsesMixedPublicViewMethodology,
   safePercentChange
 } from "../lib/youtube-performance-utils.ts";
 
@@ -67,4 +70,21 @@ test("calculates subscriber net growth and percent deltas", () => {
   assert.equal(safePercentChange(150, 100), 50);
   assert.equal(safePercentChange(10, 0), 100);
   assert.equal(safePercentChange(0, 0), 0);
+});
+
+test("calculates engagement rate without treating zero public views as engagement", () => {
+  assert.equal(calculateEngagementRate(75, 100), 75);
+  assert.equal(calculateEngagementRate(0, 0), null);
+});
+
+test("flags public-view comparisons that cross the August 24 methodology break", () => {
+  assert.equal(rangeUsesMixedPublicViewMethodology("2026-08-01", "2026-08-31"), true);
+  assert.equal(rangeUsesMixedPublicViewMethodology("2026-08-24", "2026-08-31"), false);
+  assert.equal(
+    comparisonUsesDifferentPublicViewMethodologies(
+      { startDate: "2026-08-01", endDate: "2026-08-23" },
+      { startDate: "2026-08-24", endDate: "2026-08-31" }
+    ),
+    true
+  );
 });

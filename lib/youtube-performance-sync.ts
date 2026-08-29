@@ -30,6 +30,8 @@ import {
 } from "@/lib/youtube-performance-utils";
 
 const CHANNEL_CORE_METRIC_SETS = [
+  ["views", "engagedViews", "estimatedMinutesWatched", "subscribersGained", "subscribersLost"],
+  ["views", "engagedViews", "estimatedMinutesWatched"],
   ["views", "estimatedMinutesWatched", "subscribersGained", "subscribersLost"],
   ["views", "estimatedMinutesWatched"]
 ];
@@ -50,6 +52,10 @@ const REVENUE_METRIC_SETS = [
 ];
 
 const CONTENT_TYPE_METRIC_SETS = [
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks"],
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue"],
+  ["views", "engagedViews", "estimatedMinutesWatched"],
+  ["views", "engagedViews"],
   ["views", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks"],
   ["views", "estimatedMinutesWatched", "estimatedRevenue"],
   ["views", "estimatedMinutesWatched"],
@@ -57,6 +63,9 @@ const CONTENT_TYPE_METRIC_SETS = [
 ];
 
 const COUNTRY_METRIC_SETS = [
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks", "adImpressions", "playbackBasedCpm"],
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue"],
+  ["views", "engagedViews", "estimatedMinutesWatched"],
   [
     "views",
     "estimatedMinutesWatched",
@@ -76,6 +85,9 @@ const COUNTRY_METRIC_SETS = [
 ];
 
 const VIDEO_METRIC_SETS = [
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks", "adImpressions", "playbackBasedCpm"],
+  ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue"],
+  ["views", "engagedViews", "estimatedMinutesWatched"],
   [
     "views",
     "estimatedMinutesWatched",
@@ -92,7 +104,16 @@ const VIDEO_METRIC_SETS = [
   ["views"]
 ];
 
-const CREATOR_CONTENT_TYPE_METRIC_SETS = [["views"]];
+const CREATOR_CONTENT_TYPE_METRIC_SETS = [["views", "engagedViews"], ["views"]];
+
+const DAILY_CONTENT_TYPE_FILTERS: Array<{
+  analyticsValue: string;
+  contentType: VideoContentType;
+}> = [
+  { analyticsValue: "shorts", contentType: "short" },
+  { analyticsValue: "videoOnDemand", contentType: "long" },
+  { analyticsValue: "liveStream", contentType: "live" }
+];
 
 type SyncInput = {
   channelId?: string;
@@ -185,9 +206,7 @@ export async function syncYoutubeCmsAnalytics(input: SyncInput) {
     }
 
     const includePeriodBreakdowns =
-      input.storePeriodBreakdowns === false
-        ? false
-        : isCanonicalMonthlyBreakdownRange(input.startDate, input.endDate);
+      input.storePeriodBreakdowns ?? isCanonicalMonthlyBreakdownRange(input.startDate, input.endDate);
     let channelMetrics: DailyMetricAccumulator[] = [];
     const contentTypeMetrics: DailyMetricAccumulator[] = [];
     const countryMetrics: DailyMetricAccumulator[] = [];
@@ -443,6 +462,7 @@ function rowsFromReport(
     }
 
     if (metrics.has("views")) accumulator.views = readNumber(row, "views");
+    if (metrics.has("engagedViews")) accumulator.engagedViews = readNumber(row, "engagedViews");
     if (metrics.has("estimatedMinutesWatched")) {
       accumulator.estimatedMinutesWatched = readNumber(row, "estimatedMinutesWatched");
     }
@@ -539,24 +559,22 @@ async function fetchChannelReports(input: {
 
   try {
     const [channelCore, channelRevenue, contentTypeReport, countryReportGroup, videoReportGroup] = await Promise.all([
-      fetchAnalyticsReportWithFallback({
+      fetchDailyReportsWithFallback({
         accessToken: input.accessToken,
         config: input.config,
         startDate: input.startDate,
         endDate: input.endDate,
-        dimensions: ["day"],
         metricSets: CHANNEL_CORE_METRIC_SETS,
         filters: channelFilter,
         sort: ["day"]
       }),
-      fetchOptionalReport(
+      fetchOptionalReports(
         () =>
-          fetchAnalyticsReportWithFallback({
+          fetchDailyReportsWithFallback({
             accessToken: input.accessToken,
             config: input.config,
             startDate: input.startDate,
             endDate: input.endDate,
-            dimensions: ["day"],
             metricSets: REVENUE_METRIC_SETS,
             filters: channelFilter,
             sort: ["day"]
@@ -564,31 +582,17 @@ async function fetchChannelReports(input: {
         `${input.channelId} revenue`,
         input.warnings
       ),
-      fetchOptionalReport(
-        () =>
-          fetchAnalyticsReportWithFallback({
-            accessToken: input.accessToken,
-            config: input.config,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            dimensions: ["day", "creatorContentType"],
-            metricSets: CONTENT_TYPE_METRIC_SETS,
-            filters: channelFilter,
-            sort: ["day"]
-          }),
-        `${input.channelId} creatorContentType`,
-        input.warnings
-      ),
+      fetchDailyContentTypeReports(input),
       countryReportPromise,
       videoReportPromise
     ]);
 
     return {
-      channelMetrics: withChannelId(mergeReports(["day"], channelCore, channelRevenue), input.channelId),
-      contentTypeMetrics: withChannelId(
-        rowsFromReport(["day", "creatorContentType"], contentTypeReport),
+      channelMetrics: withChannelId(
+        mergeReports(["day"], ...channelCore, ...channelRevenue),
         input.channelId
       ),
+      contentTypeMetrics: contentTypeReport,
       countryMetrics: countryReportGroup.metrics,
       videoMetrics: videoReportGroup.metrics,
       videoMetadata: videoReportGroup.metadata
@@ -600,6 +604,76 @@ async function fetchChannelReports(input: {
         : `${input.channelId} core metrics skipped.`
     );
     return { channelMetrics: [], contentTypeMetrics: [], countryMetrics: [], videoMetrics: [], videoMetadata: [] };
+  }
+}
+
+async function fetchDailyContentTypeReports(input: {
+  accessToken: string;
+  channelId: string;
+  config: YouTubeApiConfig;
+  endDate: string;
+  startDate: string;
+  warnings: string[];
+}) {
+  const reports = await mapWithConcurrency(DAILY_CONTENT_TYPE_FILTERS, 3, async ({ analyticsValue, contentType }) => {
+    const reports = await fetchOptionalReports(
+      () =>
+        fetchDailyReportsWithFallback({
+          accessToken: input.accessToken,
+          config: input.config,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          metricSets: CONTENT_TYPE_METRIC_SETS,
+          filters: getChannelAnalyticsFilter(
+            input.config,
+            input.channelId,
+            `creatorContentType==${analyticsValue}`
+          ),
+          sort: ["day"]
+        }),
+      `${input.channelId} ${analyticsValue}`,
+      input.warnings
+    );
+
+    return reports.flatMap((report) =>
+      rowsFromReport(["day"], report, { channelId: input.channelId }).map((row) => ({
+        ...row,
+        contentType
+      }))
+    );
+  });
+
+  return reports.flat();
+}
+
+async function fetchDailyReportsWithFallback(input: {
+  accessToken: string;
+  config: YouTubeApiConfig;
+  endDate: string;
+  metricSets: string[][];
+  filters?: string;
+  sort?: string[];
+  startDate: string;
+}) {
+  return mapWithConcurrency(getBoundedDailyPeriods(input.startDate, input.endDate), 3, (period) =>
+    fetchAnalyticsReportWithFallback({
+      ...input,
+      ...period,
+      dimensions: ["day"]
+    })
+  );
+}
+
+async function fetchOptionalReports(
+  callback: () => Promise<AnalyticsReportResult[]>,
+  label: string,
+  warnings: string[]
+) {
+  try {
+    return await callback();
+  } catch (error) {
+    warnings.push(error instanceof Error ? `${label} report skipped: ${error.message}` : `${label} report skipped.`);
+    return [];
   }
 }
 
@@ -912,6 +986,14 @@ async function upsertChannelMetrics(
     subscribers_lost: row.subscribersLost ?? 0,
     updated_at: updatedAt
   }));
+  const engagedRows = metrics
+    .filter((row) => row.engagedViews !== undefined)
+    .map((row) => ({
+      day: row.day,
+      channel_id: row.channelId,
+      engaged_views: row.engagedViews,
+      updated_at: updatedAt
+    }));
   const revenueRows = metrics
     .filter(hasRevenueMetric)
     .map((row) => ({
@@ -935,6 +1017,7 @@ async function upsertChannelMetrics(
     }));
 
   await upsertInChunks(db, "youtube_channel_daily_metrics", coreRows, "day,channel_id");
+  await upsertInChunks(db, "youtube_channel_daily_metrics", engagedRows, "day,channel_id");
   await upsertInChunks(db, "youtube_channel_daily_metrics", revenueRows, "day,channel_id");
   await upsertInChunks(db, "youtube_channel_daily_metrics", ctrRows, "day,channel_id");
 }
@@ -969,12 +1052,22 @@ async function upsertVideoMetrics(
       playback_based_cpm: row.playbackBasedCpm ?? 0,
       updated_at: updatedAt
     }));
+  const engagedRows = metrics
+    .filter((row) => row.videoId && row.channelId && row.day && row.engagedViews !== undefined)
+    .map((row) => ({
+      day: row.day,
+      channel_id: row.channelId,
+      video_id: row.videoId,
+      engaged_views: row.engagedViews,
+      updated_at: updatedAt
+    }));
 
   if (revenueRows.length > 0) {
     await deleteVideoMetricsForDays(db, revenueRows);
   }
 
   await upsertInChunks(db, "youtube_video_daily_metrics", coreRows, "day,video_id");
+  await upsertInChunks(db, "youtube_video_daily_metrics", engagedRows, "day,video_id");
   await upsertInChunks(db, "youtube_video_daily_metrics", revenueRows, "day,video_id");
 }
 
@@ -1008,7 +1101,7 @@ function hasRevenueMetric(row: DailyMetricAccumulator) {
 }
 
 function hasCorePerformanceMetric(row: DailyMetricAccumulator) {
-  return row.views !== undefined || row.estimatedMinutesWatched !== undefined;
+  return row.views !== undefined || row.engagedViews !== undefined || row.estimatedMinutesWatched !== undefined;
 }
 
 function getAnalyticsContentTypeByVideoId(metrics: DailyMetricAccumulator[]) {
@@ -1105,8 +1198,16 @@ async function upsertContentTypeMetrics(
     monetized_playbacks: row.monetizedPlaybacks ?? 0,
     updated_at: updatedAt
   }));
+  const engagedRows = metrics.filter((row) => row.engagedViews !== undefined).map((row) => ({
+    day: row.day,
+    channel_id: row.channelId,
+    content_type: row.contentType ?? "unknown",
+    engaged_views: row.engagedViews,
+    updated_at: updatedAt
+  }));
 
   await upsertInChunks(db, "youtube_content_type_daily_metrics", coreRows, "day,channel_id,content_type");
+  await upsertInChunks(db, "youtube_content_type_daily_metrics", engagedRows, "day,channel_id,content_type");
   await upsertInChunks(db, "youtube_content_type_daily_metrics", revenueRows, "day,channel_id,content_type");
 }
 
@@ -1140,12 +1241,22 @@ async function upsertCountryMetrics(
       playback_based_cpm: row.playbackBasedCpm ?? 0,
       updated_at: updatedAt
     }));
+  const engagedRows = metrics
+    .filter((row) => row.countryCode && row.channelId && row.day && row.engagedViews !== undefined)
+    .map((row) => ({
+      day: row.day,
+      channel_id: row.channelId,
+      country_code: row.countryCode ?? "ZZ",
+      engaged_views: row.engagedViews,
+      updated_at: updatedAt
+    }));
 
   if (revenueRows.length > 0) {
     await deleteCountryMetricsForDays(db, revenueRows);
   }
 
   await upsertInChunks(db, "youtube_country_daily_metrics", coreRows, "day,channel_id,country_code");
+  await upsertInChunks(db, "youtube_country_daily_metrics", engagedRows, "day,channel_id,country_code");
   await upsertInChunks(db, "youtube_country_daily_metrics", revenueRows, "day,channel_id,country_code");
 }
 
@@ -1267,6 +1378,23 @@ function getVideoMetricPeriods(startDate: string, endDate: string) {
       endDate: normalizeReportDate(periodEnd)
     });
 
+    cursor = new Date(periodEnd.getTime() + 86_400_000);
+  }
+
+  return periods;
+}
+
+function getBoundedDailyPeriods(startDate: string, endDate: string, maximumDays = 180) {
+  const periods: Array<{ startDate: string; endDate: string }> = [];
+  let cursor = parseUtcDate(startDate);
+  const end = parseUtcDate(endDate);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const periodEnd = new Date(Math.min(end.getTime(), cursor.getTime() + (maximumDays - 1) * 86_400_000));
+    periods.push({
+      startDate: normalizeReportDate(cursor),
+      endDate: normalizeReportDate(periodEnd)
+    });
     cursor = new Date(periodEnd.getTime() + 86_400_000);
   }
 

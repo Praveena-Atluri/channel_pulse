@@ -21,6 +21,7 @@ import {
   TARGET_PERCENT_PRESETS,
   calculatePercentTarget,
   calculateTargetIncreasePercent,
+  getDefaultMonthlyTargetBaselineSource,
   getEditableMonthlyTargetMetrics,
   getTargetBaselineMonthOptions,
   getVisibleMonthlyTargetMetrics,
@@ -102,7 +103,7 @@ export function MonthlyTargetsDashboard({
   const [baselineMonth, setBaselineMonth] = useState("");
   const [baselineMonths, setBaselineMonths] = useState<string[]>(() => getTargetBaselineMonthOptions(defaultMonth));
   const [baselineSource, setBaselineSource] = useState<MonthlyTargetBaselineSource>(
-    DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE
+    getDefaultMonthlyTargetBaselineSource(defaultMonth)
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -114,8 +115,8 @@ export function MonthlyTargetsDashboard({
   const activeMode = canEditTargets ? mode : "status";
   const selectedChannelIds = activeMode === "status" ? statusChannelIds : editChannelIds;
   const setSelectedChannelIds = activeMode === "status" ? setStatusChannelIds : setEditChannelIds;
-  const statusMetrics = useMemo(() => getVisibleMonthlyTargetMetrics(canViewRevenue), [canViewRevenue]);
-  const editableMetrics = useMemo(() => getEditableMonthlyTargetMetrics(canViewRevenue), [canViewRevenue]);
+  const statusMetrics = useMemo(() => getVisibleMonthlyTargetMetrics(canViewRevenue, month), [canViewRevenue, month]);
+  const editableMetrics = useMemo(() => getEditableMonthlyTargetMetrics(canViewRevenue, month), [canViewRevenue, month]);
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();
@@ -131,6 +132,9 @@ export function MonthlyTargetsDashboard({
   const canUseLoadedRows = schemaReady && hasRows && !isLoading;
   const canSave = schemaReady && hasRows && !isSaving && !isLoading;
   const canDownload = schemaReady && hasRows && !isLoading;
+  const hasLegacySeptemberTargets = rows.some((row) => row.requiresLegacyViewTargetRecalculation);
+  const engagedViewsUnavailable = month >= "2026-09" && rows.some((row) => !row.engagedViewsAvailable);
+  const engagedBaselineUnavailable = month >= "2026-09" && rows.some((row) => !row.engagedBaselineAvailable);
 
   useEffect(() => {
     const closeStatusDropdown = () => {
@@ -218,7 +222,7 @@ export function MonthlyTargetsDashboard({
 
     setMonth(nextMonth);
     setBaselineMonths(nextBaselineMonths);
-    setBaselineSource((current) => normalizeMonthlyTargetBaselineSource(current, nextBaselineMonths));
+    setBaselineSource(getDefaultMonthlyTargetBaselineSource(nextMonth));
   };
 
   const toggleChannel = (channelId: string) => {
@@ -262,7 +266,7 @@ export function MonthlyTargetsDashboard({
 
     setRows((current) =>
       current.map((row) => {
-        if (!row.hasBaselineData) return row;
+        if (!row.hasBaselineData || (isEngagedViewMetric(metric) && !row.engagedBaselineAvailable)) return row;
 
         return {
           ...row,
@@ -513,6 +517,25 @@ export function MonthlyTargetsDashboard({
           </label>
         )}
       </div>
+
+      {hasLegacySeptemberTargets ? (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
+          Legacy public-view targets were found for September. Recalculate and save Short and long engaged-view targets;
+          the legacy values have not been copied or reinterpreted.
+        </div>
+      ) : null}
+      {engagedViewsUnavailable ? (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
+          Engaged-view actuals are unavailable for one or more selected channels. Run the engaged-view backfill before
+          reviewing or saving September targets; public views are not used as a fallback.
+        </div>
+      ) : null}
+      {engagedBaselineUnavailable ? (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
+          One or more May–July engaged-view baselines are unavailable. Percentage target actions will skip those
+          channels until the engaged-view backfill is complete.
+        </div>
+      ) : null}
 
       {activeMode === "edit" ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
@@ -1373,6 +1396,10 @@ function requestCustomPercent() {
 
 function getMetricLabel(metric: MonthlyTargetMetric) {
   return MONTHLY_TARGET_METRICS.find((definition) => definition.key === metric)?.label ?? metric;
+}
+
+function isEngagedViewMetric(metric: MonthlyTargetMetric) {
+  return metric === "shortEngagedViews" || metric === "longEngagedViews";
 }
 
 function formatMetricValue(metric: MonthlyTargetMetric, value: number) {

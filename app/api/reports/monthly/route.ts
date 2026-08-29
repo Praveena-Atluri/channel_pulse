@@ -319,6 +319,7 @@ async function buildChannelSummaryRows({
   ]);
   const summaries = channels.map((channel) => ({
     channel,
+    engagedViewsAvailable: false,
     totals: createEmptyTotals(),
     formatViews: {
       short: 0,
@@ -338,9 +339,11 @@ async function buildChannelSummaryRows({
   for (const row of channelMetricRows) {
     const summary = summariesById.get(row.channel_id);
     if (!summary) continue;
+    summary.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
 
     addMetricTotals(summary.totals, {
       views: toNumber(row.views),
+      engagedViews: toNumber(row.engaged_views),
       estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
       subscribersGained: toNumber(row.subscribers_gained),
       subscribersLost: toNumber(row.subscribers_lost),
@@ -355,6 +358,7 @@ async function buildChannelSummaryRows({
   for (const row of contentTypeMetricRows) {
     const summary = summariesById.get(row.channel_id);
     if (!summary) continue;
+    summary.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
     summary.formatViews[row.content_type] += toNumber(row.views);
   }
 
@@ -494,9 +498,11 @@ async function buildChannelSummaries(
   for (const row of channelMetricRows) {
     const summary = summariesById.get(row.channel_id);
     if (!summary) continue;
+    summary.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
 
     addMetricTotals(summary.totals, {
       views: toNumber(row.views),
+      engagedViews: toNumber(row.engaged_views),
       estimatedMinutesWatched: toNumber(row.estimated_minutes_watched),
       subscribersGained: toNumber(row.subscribers_gained),
       subscribersLost: toNumber(row.subscribers_lost),
@@ -529,6 +535,7 @@ type ChannelSummaryMetricRow = {
   day: string;
   channel_id: string;
   views: number | string | null;
+  engaged_views: number | string | null;
   estimated_minutes_watched: number | string | null;
   subscribers_gained: number | string | null;
   subscribers_lost: number | string | null;
@@ -544,10 +551,12 @@ type ChannelSummaryContentTypeRow = {
   channel_id: string;
   content_type: VideoContentType;
   views: number | string | null;
+  engaged_views: number | string | null;
 };
 
 type ChannelSummaryRow = {
   channel: StoredYoutubeManagedChannel;
+  engagedViewsAvailable: boolean;
   totals: MetricTotals;
   formatViews: Record<VideoContentType, number>;
   ranks: {
@@ -605,6 +614,7 @@ function getDashboardSyncChannels(channelId: string, channels: Array<{ channelId
 function createChannelSummary(channel: StoredYoutubeManagedChannel): ChannelSummaryRow {
   return {
     channel,
+    engagedViewsAvailable: false,
     totals: createEmptyTotals(),
     formatViews: {
       short: 0,
@@ -703,7 +713,7 @@ async function getChannelMetricRows(
     const { data, error } = await db
       .from("youtube_channel_daily_metrics")
       .select(
-        "day,channel_id,views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions"
+        "day,channel_id,views,engaged_views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,estimated_ad_revenue,gross_revenue,monetized_playbacks,ad_impressions"
       )
       .in("channel_id", channelIds)
       .gte("day", startDate)
@@ -733,7 +743,7 @@ async function getContentTypeMetricRows(
   while (true) {
     const { data, error } = await db
       .from("youtube_content_type_daily_metrics")
-      .select("day,channel_id,content_type,views")
+      .select("day,channel_id,content_type,views,engaged_views")
       .in("channel_id", channelIds)
       .gte("day", startDate)
       .lt("day", exclusiveEndDate)
@@ -768,6 +778,12 @@ function getChannelSummaryCell(
       return formatReportDateRange(startDate, endDate);
     case "views":
       return totals.views;
+    case "engaged_views":
+      return summary.engagedViewsAvailable ? totals.engagedViews : "Unavailable";
+    case "engagement_rate":
+      return summary.engagedViewsAvailable && totals.views > 0
+        ? round((totals.engagedViews / totals.views) * 100)
+        : "Unavailable";
     case "watch_hours":
       return round(totals.estimatedMinutesWatched / 60);
     case "subscribers_gained":
@@ -839,7 +855,22 @@ function getChannelCompareCells(
         { label: "Range 2", value: formatReportDateRange(dates.comparisonStartDate, dates.comparisonEndDate) }
       ];
     case "views":
-      return compareCells("Views", primary.totals.views, comparison.totals.views, { includePercent: true });
+      return compareCells("Public Views", primary.totals.views, comparison.totals.views, { includePercent: true });
+    case "engaged_views":
+      if (!primary.engagedViewsAvailable || !comparison.engagedViewsAvailable) {
+        return unavailableCompareCells("Engaged Views", true);
+      }
+      return compareCells("Engaged Views", primary.totals.engagedViews, comparison.totals.engagedViews, { includePercent: true });
+    case "engagement_rate":
+      if (!primary.engagedViewsAvailable || !comparison.engagedViewsAvailable) {
+        return unavailableCompareCells("Engagement Rate (%)");
+      }
+      return compareCells(
+        "Engagement Rate (%)",
+        primary.totals.views > 0 ? (primary.totals.engagedViews / primary.totals.views) * 100 : 0,
+        comparison.totals.views > 0 ? (comparison.totals.engagedViews / comparison.totals.views) * 100 : 0,
+        { rounded: true }
+      );
     case "watch_hours":
       return compareCells("Watch Hours", primaryWatchHours, comparisonWatchHours, { includePercent: true, rounded: true });
     case "net_subscribers":
@@ -877,7 +908,11 @@ function getChannelCompareHeaders(columnId: ChannelCompareColumnId) {
     case "date_ranges":
       return ["Range 1", "Range 2"];
     case "views":
-      return compareHeaders("Views", true);
+      return compareHeaders("Public Views", true);
+    case "engaged_views":
+      return compareHeaders("Engaged Views", true);
+    case "engagement_rate":
+      return compareHeaders("Engagement Rate (%)");
     case "watch_hours":
       return compareHeaders("Watch Hours", true);
     case "net_subscribers":
@@ -943,6 +978,10 @@ function compareCells(
   return cells;
 }
 
+function unavailableCompareCells(label: string, includePercent = false) {
+  return compareHeaders(label, includePercent).map((header) => ({ label: header, value: "Unavailable" }));
+}
+
 function assignRanks(
   summaries: ChannelSummaryRow[],
   rankKey: keyof ChannelSummaryRow["ranks"],
@@ -993,11 +1032,12 @@ function buildReportRows(
       ["Filter", "Month", dashboard.selectedMonth],
       ["Filter", "Channel", channelTitle],
       ["Filter", "Format", contentTypeLabel(dashboard.filters.contentType)],
-      ...metricTotalRows("Current", dashboard.currentTotals),
-      ...metricTotalRows("Previous", dashboard.previousTotals),
+      ...metricTotalRows("Current", dashboard.currentTotals, dashboard.engagedViewsAvailable),
+      ...metricTotalRows("Previous", dashboard.previousTotals, dashboard.previousEngagedViewsAvailable),
       ["Current", "Net subscribers", calculateNetSubscribers(dashboard.channelSubscriberTotals)],
       ["Previous", "Net subscribers", calculateNetSubscribers(dashboard.previousChannelSubscriberTotals)],
-      ["Growth", "Views percent", round(dashboard.growth.views)],
+      ["Growth", "Public views percent", round(dashboard.growth.views)],
+      ["Growth", "Engaged views percent", round(dashboard.growth.engagedViews)],
       ["Growth", "Revenue percent", round(dashboard.growth.revenue)],
       ["Growth", "Net subscribers percent", round(dashboard.growth.netSubscribers)]
     ];
@@ -1005,10 +1045,12 @@ function buildReportRows(
 
   if (report === "formats") {
     return [
-      ["Content type", "Views", "Estimated revenue"],
+      ["Content type", "Public views", "Engaged views", "Engagement rate percent", "Estimated revenue"],
       ...dashboard.longShortSplit.map((row) => [
         contentTypeLabel(row.contentType),
         row.views,
+        row.engagedViews,
+        row.views > 0 ? round((row.engagedViews / row.views) * 100) : "Unavailable",
         round(row.revenue)
       ])
     ];
@@ -1016,7 +1058,7 @@ function buildReportRows(
 
   if (report === "countries") {
     return [
-      ["Country code", "Country name", "Views", "Estimated revenue", "RPM", "Revenue share percent"],
+      ["Country code", "Country name", "Public views", "Engaged views", "Engagement rate percent", "Estimated revenue", "RPM", "Revenue share percent"],
       ...dashboard.countryRevenueBreakdown.map((row) => countryRevenueReportRow(row, dashboard.currentTotals.estimatedRevenue))
     ];
   }
@@ -1032,7 +1074,9 @@ function buildReportRows(
       "Content type",
       "Cohort",
       "Published at",
-      "Views",
+      "Public views",
+      "Engaged views",
+      "Engagement rate percent",
       "Watch hours",
       "Estimated revenue",
       "Estimated ad revenue",
@@ -1087,9 +1131,11 @@ function reportSheetName(report: ReportType) {
   }
 }
 
-function metricTotalRows(category: string, totals: MetricTotals) {
+function metricTotalRows(category: string, totals: MetricTotals, engagedViewsAvailable: boolean) {
   return [
-    [category, "Views", totals.views],
+    [category, "Public views", totals.views],
+    [category, "Engaged views", engagedViewsAvailable ? totals.engagedViews : "Unavailable"],
+    [category, "Engagement rate percent", engagedViewsAvailable && totals.views > 0 ? round((totals.engagedViews / totals.views) * 100) : "Unavailable"],
     [category, "Watch hours", round(totals.estimatedMinutesWatched / 60)],
     [category, "Subscribers gained", totals.subscribersGained],
     [category, "Subscribers lost", totals.subscribersLost],
@@ -1107,6 +1153,8 @@ function countryRevenueReportRow(row: CountryRevenueRow, totalRevenue: number) {
     row.countryCode,
     row.countryName,
     row.views,
+    row.engagedViews,
+    row.views > 0 ? round((row.engagedViews / row.views) * 100) : "Unavailable",
     round(row.estimatedRevenue),
     round(calculateRevenuePerThousandViews(row)),
     round(calculateRevenueShare(row.estimatedRevenue, totalRevenue))
@@ -1125,6 +1173,8 @@ function videoSectionRows(section: string, rows: VideoPerformanceRow[]) {
     row.cohort,
     row.publishedAt ?? "",
     row.views,
+    row.engagedViews,
+    row.views > 0 ? round((row.engagedViews / row.views) * 100) : "Unavailable",
     round(row.estimatedMinutesWatched / 60),
     round(row.estimatedRevenue),
     round(row.estimatedAdRevenue),

@@ -1,5 +1,6 @@
 import {
   DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE,
+  ENGAGED_TARGET_START_MONTH,
   MONTHLY_TARGET_METRICS,
   aggregateTargetProgressRows,
   buildTargetProgress,
@@ -35,6 +36,9 @@ export type MonthlyTargetDashboardRow = {
   channelId: string;
   channelTitle: string;
   hasBaselineData: boolean;
+  engagedViewsAvailable: boolean;
+  engagedBaselineAvailable: boolean;
+  requiresLegacyViewTargetRecalculation: boolean;
   progress: ReturnType<typeof buildTargetProgress>;
   target: MonthlyTargetValues;
   targetSourceLabels: MonthlyTargetSourceLabels;
@@ -71,6 +75,8 @@ type TargetDbRow = {
   channel_id: string;
   short_views_target: number | string | null;
   long_views_target: number | string | null;
+  short_engaged_views_target: number | string | null;
+  long_engaged_views_target: number | string | null;
   short_videos_target: number | string | null;
   long_videos_target: number | string | null;
   watch_hours_target: number | string | null;
@@ -86,6 +92,7 @@ type ChannelMetricRow = {
   channel_id: string;
   day: string;
   estimated_minutes_watched: number | string | null;
+  engaged_views: number | string | null;
   estimated_revenue?: number | string | null;
   subscribers_gained: number | string | null;
   subscribers_lost: number | string | null;
@@ -96,6 +103,7 @@ type ContentTypeMetricRow = {
   content_type: VideoContentType;
   day: string;
   views: number | string | null;
+  engaged_views: number | string | null;
 };
 
 type PublishedVideoRow = {
@@ -109,6 +117,7 @@ type LatestMetricDayRow = {
 };
 
 type ActualBucket = {
+  engagedViewsAvailable: boolean;
   hasData: boolean;
   sourceMonths: MonthlyTargetBaselineSourceMonths;
   values: MonthlyActualValues;
@@ -124,6 +133,8 @@ const TARGET_SELECT_COLUMNS = [
   "channel_id",
   "short_views_target",
   "long_views_target",
+  "short_engaged_views_target",
+  "long_engaged_views_target",
   "short_videos_target",
   "long_videos_target",
   "watch_hours_target",
@@ -250,8 +261,22 @@ export async function saveMonthlyTargets({
     return {
       month,
       channel_id: row.channelId,
-      short_views_target: normalizedTargets.shortViews,
-      long_views_target: normalizedTargets.longViews,
+      short_views_target:
+        month >= ENGAGED_TARGET_START_MONTH
+          ? existingRow?.short_views_target ?? null
+          : normalizedTargets.shortViews,
+      long_views_target:
+        month >= ENGAGED_TARGET_START_MONTH
+          ? existingRow?.long_views_target ?? null
+          : normalizedTargets.longViews,
+      short_engaged_views_target:
+        month >= ENGAGED_TARGET_START_MONTH
+          ? normalizedTargets.shortEngagedViews
+          : existingRow?.short_engaged_views_target ?? null,
+      long_engaged_views_target:
+        month >= ENGAGED_TARGET_START_MONTH
+          ? normalizedTargets.longEngagedViews
+          : existingRow?.long_engaged_views_target ?? null,
       short_videos_target: normalizedTargets.shortVideosToPublish,
       long_videos_target: normalizedTargets.longVideosToPublish,
       watch_hours_target: normalizedTargets.watchHours,
@@ -290,6 +315,8 @@ function mapTargetDbRow(row: TargetDbRow | undefined): MonthlyTargetValues {
   return {
     shortViews: toNullableNumber(row.short_views_target),
     longViews: toNullableNumber(row.long_views_target),
+    shortEngagedViews: toNullableNumber(row.short_engaged_views_target),
+    longEngagedViews: toNullableNumber(row.long_engaged_views_target),
     shortVideosToPublish: toNullableNumber(row.short_videos_target),
     longVideosToPublish: toNullableNumber(row.long_videos_target),
     watchHours: toNullableNumber(row.watch_hours_target),
@@ -324,7 +351,7 @@ async function getMonthlyTargetRows({
     getTargetDbRows(db, month, channelIds, { includeRevenue: canViewRevenue }),
     getDailyPublishingTargetsByChannelId(channelIds),
     getActualBuckets(db, month, channelIds),
-    getBaselineBuckets(db, { baselineMonth, baselineMonths, baselineSource, channelIds }),
+    getBaselineBuckets(db, { baselineMonth, baselineMonths, baselineSource, channelIds, targetMonth: month }),
     getWeeklyActualBuckets(db, month, channelIds)
   ]);
   const targetRowsByChannelId = new Map(targetRows.map((row) => [row.channel_id, row]));
@@ -346,6 +373,14 @@ async function getMonthlyTargetRows({
       channelId: channel.channelId,
       channelTitle: channel.title,
       hasBaselineData: baselineBucket.hasData,
+      engagedViewsAvailable: actualBucket.engagedViewsAvailable,
+      engagedBaselineAvailable: baselineBucket.engagedViewsAvailable,
+      requiresLegacyViewTargetRecalculation:
+        month >= ENGAGED_TARGET_START_MONTH &&
+        (toNullableNumber(targetRowsByChannelId.get(channel.channelId)?.short_views_target) !== null ||
+          toNullableNumber(targetRowsByChannelId.get(channel.channelId)?.long_views_target) !== null) &&
+        target.shortEngagedViews === null &&
+        target.longEngagedViews === null,
       progress: buildTargetProgress({ actual: actualBucket.values, target }),
       target,
       targetSourceLabels: publishingTargetResult.sourceLabels,
@@ -381,12 +416,14 @@ async function getBaselineBuckets(
     baselineMonth,
     baselineMonths,
     baselineSource,
-    channelIds
+    channelIds,
+    targetMonth
   }: {
     baselineMonth: string;
     baselineMonths: string[];
     baselineSource: MonthlyTargetBaselineSource;
     channelIds: string[];
+    targetMonth: string;
   }
 ) {
   if (baselineSource === "last-three-months-average") {
@@ -394,7 +431,7 @@ async function getBaselineBuckets(
   }
 
   if (baselineSource === "highest-in-year") {
-    return getHighestActualBuckets(db, baselineMonths, channelIds);
+    return getHighestActualBuckets(db, baselineMonths, channelIds, targetMonth);
   }
 
   const selectedMonth = isMonthlyTargetBaselineMonthSource(baselineSource) ? baselineSource : baselineMonth;
@@ -415,6 +452,9 @@ async function getAverageActualBuckets(
 
     const totals = createEmptyActualValues();
     let monthsWithData = 0;
+    const metricMonthCounts = Object.fromEntries(
+      MONTHLY_TARGET_METRICS.map((metric) => [metric.key, 0])
+    ) as Record<MonthlyTargetMetric, number>;
 
     for (const monthBuckets of monthlyBuckets) {
       const bucket = monthBuckets.get(channelId);
@@ -423,14 +463,20 @@ async function getAverageActualBuckets(
       monthsWithData += 1;
       for (const metric of MONTHLY_TARGET_METRICS) {
         totals[metric.key] += bucket.values[metric.key];
+        if (bucket.sourceMonths[metric.key]) metricMonthCounts[metric.key] += 1;
       }
     }
 
     if (monthsWithData === 0) continue;
 
     averageBucket.hasData = true;
+    averageBucket.engagedViewsAvailable =
+      metricMonthCounts.shortEngagedViews === months.length &&
+      metricMonthCounts.longEngagedViews === months.length;
     for (const metric of MONTHLY_TARGET_METRICS) {
-      averageBucket.values[metric.key] = roundTargetValue(metric.key, totals[metric.key] / monthsWithData);
+      const count = metricMonthCounts[metric.key];
+      averageBucket.values[metric.key] = count > 0 ? roundTargetValue(metric.key, totals[metric.key] / count) : 0;
+      averageBucket.sourceMonths[metric.key] = count > 0 ? months.slice(0, count).join(",") : null;
     }
   }
 
@@ -440,7 +486,8 @@ async function getAverageActualBuckets(
 async function getHighestActualBuckets(
   db: ReturnType<typeof createDatabaseAdminClient>,
   months: string[],
-  channelIds: string[]
+  channelIds: string[],
+  targetMonth: string
 ) {
   const monthlyBuckets = await Promise.all(
     months.map(async (month) => ({
@@ -462,8 +509,9 @@ async function getHighestActualBuckets(
       const bucket = monthBuckets.buckets.get(channelId);
       if (!bucket?.hasData) continue;
 
-      if (!selectedBucket || bucket.values.longViews > highestLongViews) {
-        highestLongViews = bucket.values.longViews;
+      const longViewsMetric = targetMonth >= ENGAGED_TARGET_START_MONTH ? "longEngagedViews" : "longViews";
+      if (!selectedBucket || bucket.values[longViewsMetric] > highestLongViews) {
+        highestLongViews = bucket.values[longViewsMetric];
         selectedBucket = bucket;
         selectedMonth = monthBuckets.month;
       }
@@ -472,6 +520,7 @@ async function getHighestActualBuckets(
     if (!selectedBucket || !selectedMonth) continue;
 
     highestBucket.hasData = selectedBucket.hasData;
+    highestBucket.engagedViewsAvailable = selectedBucket.engagedViewsAvailable;
     for (const metric of MONTHLY_TARGET_METRICS) {
       highestBucket.values[metric.key] = selectedBucket.values[metric.key];
       highestBucket.sourceMonths[metric.key] = selectedMonth;
@@ -547,6 +596,7 @@ async function getActualBuckets(
     bucket.values.watchHours += toNumber(row.estimated_minutes_watched) / 60;
     bucket.values.netSubscribers += toNumber(row.subscribers_gained) - toNumber(row.subscribers_lost);
     bucket.values.estimatedRevenue += toNumber(row.estimated_revenue);
+    bucket.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
     bucket.sourceMonths.watchHours = month;
     bucket.sourceMonths.netSubscribers = month;
     bucket.sourceMonths.estimatedRevenue = month;
@@ -561,6 +611,12 @@ async function getActualBuckets(
     bucket.hasData = true;
     bucket.values[metricKey] += toNumber(row.views);
     bucket.sourceMonths[metricKey] = month;
+    const engagedMetricKey = engagedContentTypeMetricKey(row.content_type);
+    if (engagedMetricKey && row.engaged_views !== null && row.engaged_views !== undefined) {
+      bucket.engagedViewsAvailable = true;
+      bucket.values[engagedMetricKey] += toNumber(row.engaged_views);
+      bucket.sourceMonths[engagedMetricKey] = month;
+    }
   }
 
   for (const row of publishedVideoRows) {
@@ -579,6 +635,10 @@ async function getActualBuckets(
   }
 
   for (const bucket of buckets.values()) {
+    if (bucket.engagedViewsAvailable) {
+      bucket.sourceMonths.shortEngagedViews ??= month;
+      bucket.sourceMonths.longEngagedViews ??= month;
+    }
     bucket.values.watchHours = Math.round(bucket.values.watchHours * 10) / 10;
     bucket.values.estimatedRevenue = Math.round(bucket.values.estimatedRevenue * 100) / 100;
   }
@@ -617,6 +677,10 @@ async function getWeeklyActualBuckets(
     if (!week) continue;
 
     week.actual[metricKey] += toNumber(row.views);
+    const engagedMetricKey = engagedContentTypeMetricKey(row.content_type);
+    if (engagedMetricKey && row.engaged_views !== null && row.engaged_views !== undefined) {
+      week.actual[engagedMetricKey] += toNumber(row.engaged_views);
+    }
   }
 
   for (const row of publishedVideoRows) {
@@ -651,7 +715,7 @@ async function getChannelMetricRows(
 ) {
   const { data, error } = await db
     .from("youtube_channel_daily_metrics")
-    .select("channel_id,day,estimated_minutes_watched,estimated_revenue,subscribers_gained,subscribers_lost")
+    .select("channel_id,day,engaged_views,estimated_minutes_watched,estimated_revenue,subscribers_gained,subscribers_lost")
     .in("channel_id", channelIds)
     .gte("day", startDate)
     .lt("day", endDate);
@@ -669,7 +733,7 @@ async function getContentTypeMetricRows(
 ) {
   const { data, error } = await db
     .from("youtube_content_type_daily_metrics")
-    .select("channel_id,content_type,day,views")
+    .select("channel_id,content_type,day,views,engaged_views")
     .in("channel_id", channelIds)
     .gte("day", startDate)
     .lt("day", endDate);
@@ -719,6 +783,7 @@ async function getLatestMetricDay(
 
 function createActualBucket(): ActualBucket {
   return {
+    engagedViewsAvailable: false,
     hasData: false,
     sourceMonths: createEmptyBaselineSourceMonths(),
     values: createEmptyActualValues()
@@ -821,13 +886,19 @@ function contentTypeMetricKey(contentType: VideoContentType): MonthlyTargetMetri
   return null;
 }
 
+function engagedContentTypeMetricKey(contentType: VideoContentType): MonthlyTargetMetric | null {
+  if (contentType === "short") return "shortEngagedViews";
+  if (contentType === "long") return "longEngagedViews";
+  return null;
+}
+
 function isMissingTargetTableError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return (
     message.includes("youtube_monthly_channel_targets") &&
     (message.includes("does not exist") || message.includes("no such table"))
   ) || (
-    message.includes("estimated_revenue_target") &&
+    (message.includes("estimated_revenue_target") || message.includes("engaged_views")) &&
     (message.includes("does not exist") || message.includes("no such column") || message.includes("no such field"))
   );
 }

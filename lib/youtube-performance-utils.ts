@@ -6,6 +6,7 @@ const EARLIEST_MONTHLY_REPORT_MONTH = "2024-01";
 
 export type MetricTotals = {
   views: number;
+  engagedViews: number;
   estimatedMinutesWatched: number;
   subscribersGained: number;
   subscribersLost: number;
@@ -19,6 +20,7 @@ export type MetricTotals = {
 
 export const EMPTY_TOTALS: MetricTotals = {
   views: 0,
+  engagedViews: 0,
   estimatedMinutesWatched: 0,
   subscribersGained: 0,
   subscribersLost: 0,
@@ -36,6 +38,7 @@ export function createEmptyTotals(): MetricTotals {
 
 export function addMetricTotals(left: MetricTotals, right: Partial<MetricTotals>) {
   left.views += right.views ?? 0;
+  left.engagedViews += right.engagedViews ?? 0;
   left.estimatedMinutesWatched += right.estimatedMinutesWatched ?? 0;
   left.subscribersGained += right.subscribersGained ?? 0;
   left.subscribersLost += right.subscribersLost ?? 0;
@@ -45,6 +48,30 @@ export function addMetricTotals(left: MetricTotals, right: Partial<MetricTotals>
   left.monetizedPlaybacks += right.monetizedPlaybacks ?? 0;
   left.adImpressions += right.adImpressions ?? 0;
   left.playbackBasedCpm += right.playbackBasedCpm ?? 0;
+}
+
+export const YOUTUBE_PUBLIC_VIEW_METHOD_CHANGE_DATE = "2026-08-24";
+export const ENGAGED_VIEW_TARGET_START_MONTH = "2026-09";
+
+export function calculateEngagementRate(engagedViews: number, publicViews: number) {
+  if (publicViews <= 0) return null;
+  return (engagedViews / publicViews) * 100;
+}
+
+export function rangeUsesMixedPublicViewMethodology(startDate: string, endDate: string) {
+  return startDate < YOUTUBE_PUBLIC_VIEW_METHOD_CHANGE_DATE && endDate >= YOUTUBE_PUBLIC_VIEW_METHOD_CHANGE_DATE;
+}
+
+export function comparisonUsesDifferentPublicViewMethodologies(
+  first: { startDate: string; endDate: string },
+  second: { startDate: string; endDate: string }
+) {
+  const classification = (range: { startDate: string; endDate: string }) => {
+    if (rangeUsesMixedPublicViewMethodology(range.startDate, range.endDate)) return "mixed";
+    return range.endDate < YOUTUBE_PUBLIC_VIEW_METHOD_CHANGE_DATE ? "legacy" : "first-frame";
+  };
+
+  return classification(first) !== classification(second) || classification(first) === "mixed";
 }
 
 export function calculateNetSubscribers(input: Pick<MetricTotals, "subscribersGained" | "subscribersLost">) {

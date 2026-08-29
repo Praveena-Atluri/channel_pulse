@@ -16,6 +16,7 @@ type BackfillOptions = {
   dryRun: boolean;
   endDate?: string;
   force: boolean;
+  includeCurrent: boolean;
   months: number;
   offsetMonths: number;
   requireRevenue: boolean;
@@ -156,15 +157,17 @@ async function backfillChannel(
       );
     }
 
-    const missingAfterSync = await getIncompleteYoutubeAnalyticsChannelIds({
-      channels: [{ channelId: channel.channelId }],
-      requireRevenue,
-      startDate,
-      endDate
-    });
+    if (!force) {
+      const missingAfterSync = await getIncompleteYoutubeAnalyticsChannelIds({
+        channels: [{ channelId: channel.channelId }],
+        requireRevenue,
+        startDate,
+        endDate
+      });
 
-    if (missingAfterSync.length > 0) {
-      throw new Error(`Daily channel metrics are still incomplete for ${startDate} to ${endDate}.`);
+      if (missingAfterSync.length > 0) {
+        throw new Error(`Daily channel metrics are still incomplete for ${startDate} to ${endDate}.`);
+      }
     }
 
     return {
@@ -223,7 +226,9 @@ function resolveBackfillRange(options: BackfillOptions) {
 
   const now = new Date();
   const endMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - options.offsetMonths, 1));
-  const endDate = new Date(endMonth.getTime() - 86_400_000);
+  const endDate = options.includeCurrent && options.offsetMonths === 0
+    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1))
+    : new Date(endMonth.getTime() - 86_400_000);
   const startDate = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth() - options.months + 1, 1));
 
   return {
@@ -238,6 +243,7 @@ function parseArgs(args: string[]): BackfillOptions {
     concurrency: Number(process.env.BACKFILL_CHANNEL_CONCURRENCY ?? DEFAULT_CONCURRENCY),
     dryRun: false,
     force: true,
+    includeCurrent: false,
     months: Number(process.env.BACKFILL_MONTHS ?? DEFAULT_MONTHS),
     offsetMonths: Number(process.env.BACKFILL_OFFSET_MONTHS ?? 0),
     requireRevenue: false
@@ -250,6 +256,8 @@ function parseArgs(args: string[]): BackfillOptions {
       options.force = false;
     } else if (arg === "--require-revenue") {
       options.requireRevenue = true;
+    } else if (arg === "--include-current") {
+      options.includeCurrent = true;
     } else if (arg.startsWith("--start=")) {
       options.startDate = arg.slice("--start=".length);
     } else if (arg.startsWith("--end=")) {

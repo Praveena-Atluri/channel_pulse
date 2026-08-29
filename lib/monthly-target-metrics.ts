@@ -1,52 +1,75 @@
 export const MONTHLY_TARGET_METRICS = [
   {
     key: "shortViews",
-    label: "Short views",
+    label: "Short public views (legacy target)",
     dbColumn: "short_views_target",
     decimals: 0,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "legacy"
   },
   {
     key: "longViews",
-    label: "Long views",
+    label: "Long public views (legacy target)",
     dbColumn: "long_views_target",
     decimals: 0,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "legacy"
+  },
+  {
+    key: "shortEngagedViews",
+    label: "Short engaged views",
+    dbColumn: "short_engaged_views_target",
+    decimals: 0,
+    adminOnly: false,
+    targetEra: "engaged"
+  },
+  {
+    key: "longEngagedViews",
+    label: "Long engaged views",
+    dbColumn: "long_engaged_views_target",
+    decimals: 0,
+    adminOnly: false,
+    targetEra: "engaged"
   },
   {
     key: "shortVideosToPublish",
     label: "Short videos to publish",
     dbColumn: "short_videos_target",
     decimals: 0,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "all"
   },
   {
     key: "longVideosToPublish",
     label: "Long videos to publish",
     dbColumn: "long_videos_target",
     decimals: 0,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "all"
   },
   {
     key: "watchHours",
     label: "Watch hours",
     dbColumn: "watch_hours_target",
     decimals: 1,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "all"
   },
   {
     key: "netSubscribers",
     label: "Net subscribers",
     dbColumn: "net_subscribers_target",
     decimals: 0,
-    adminOnly: false
+    adminOnly: false,
+    targetEra: "all"
   },
   {
     key: "estimatedRevenue",
     label: "Estimated revenue",
     dbColumn: "estimated_revenue_target",
     decimals: 2,
-    adminOnly: true
+    adminOnly: true,
+    targetEra: "all"
   }
 ] as const;
 
@@ -68,6 +91,7 @@ export const MONTHLY_TARGET_BASELINE_PRESETS = [
 ] as const;
 
 export const DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE = MONTHLY_TARGET_BASELINE_PRESETS[0].value;
+export const ENGAGED_TARGET_START_MONTH = "2026-09";
 
 export type MonthlyTargetMetric = (typeof MONTHLY_TARGET_METRICS)[number]["key"];
 export type MonthlyTargetMetricDefinition = (typeof MONTHLY_TARGET_METRICS)[number];
@@ -99,6 +123,8 @@ export function createEmptyTargetValues(): MonthlyTargetValues {
   return {
     shortViews: null,
     longViews: null,
+    shortEngagedViews: null,
+    longEngagedViews: null,
     shortVideosToPublish: null,
     longVideosToPublish: null,
     watchHours: null,
@@ -111,6 +137,8 @@ export function createEmptyActualValues(): MonthlyActualValues {
   return {
     shortViews: 0,
     longViews: 0,
+    shortEngagedViews: 0,
+    longEngagedViews: 0,
     shortVideosToPublish: 0,
     longVideosToPublish: 0,
     watchHours: 0,
@@ -119,12 +147,23 @@ export function createEmptyActualValues(): MonthlyActualValues {
   };
 }
 
-export function getVisibleMonthlyTargetMetrics(canViewRevenue: boolean) {
-  return MONTHLY_TARGET_METRICS.filter((metric) => canViewRevenue || !metric.adminOnly);
+export function getVisibleMonthlyTargetMetrics(canViewRevenue: boolean, month?: string) {
+  return MONTHLY_TARGET_METRICS.filter((metric) => {
+    if (!canViewRevenue && metric.adminOnly) return false;
+    if (!month || metric.targetEra === "all") return true;
+    if (month >= ENGAGED_TARGET_START_MONTH) return metric.targetEra === "engaged";
+    return metric.targetEra === "legacy";
+  });
 }
 
-export function getEditableMonthlyTargetMetrics(canViewRevenue: boolean) {
-  return getVisibleMonthlyTargetMetrics(canViewRevenue).filter((metric) => !isPublishingMonthlyTargetMetric(metric.key));
+export function getEditableMonthlyTargetMetrics(canViewRevenue: boolean, month?: string) {
+  return getVisibleMonthlyTargetMetrics(canViewRevenue, month).filter((metric) => !isPublishingMonthlyTargetMetric(metric.key));
+}
+
+export function getDefaultMonthlyTargetBaselineSource(targetMonth: string): MonthlyTargetBaselineSource {
+  return targetMonth === ENGAGED_TARGET_START_MONTH
+    ? "last-three-months-average"
+    : DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE;
 }
 
 export function isPublishingMonthlyTargetMetric(metric: MonthlyTargetMetric) {
@@ -176,10 +215,11 @@ export function getTargetBaselineCutoffMonth(targetMonth: string, now = new Date
 
 export function normalizeMonthlyTargetBaselineSource(
   value: string | null | undefined,
-  availableMonths: readonly string[]
+  availableMonths: readonly string[],
+  defaultSource: MonthlyTargetBaselineSource = DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE
 ): MonthlyTargetBaselineSource {
   const trimmedValue = value?.trim();
-  if (!trimmedValue) return DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE;
+  if (!trimmedValue) return defaultSource;
 
   if (isMonthlyTargetBaselinePreset(trimmedValue)) {
     return trimmedValue;
@@ -189,7 +229,7 @@ export function normalizeMonthlyTargetBaselineSource(
     return trimmedValue;
   }
 
-  return DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE;
+  return defaultSource;
 }
 
 export function isMonthlyTargetBaselineMonthSource(value: string): value is MonthlyTargetBaselineMonthSource {

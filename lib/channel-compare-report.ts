@@ -3,6 +3,8 @@ export type ChannelCompareColumnId =
   | "channel_id"
   | "date_ranges"
   | "views"
+  | "engaged_views"
+  | "engagement_rate"
   | "watch_hours"
   | "net_subscribers"
   | "estimated_revenue"
@@ -24,7 +26,9 @@ export const CHANNEL_COMPARE_COLUMNS: ChannelCompareColumn[] = [
   { id: "channel", label: "Channel" },
   { id: "channel_id", label: "Channel ID" },
   { id: "date_ranges", label: "Date Ranges" },
-  { id: "views", label: "Views" },
+  { id: "views", label: "Public Views" },
+  { id: "engaged_views", label: "Engaged Views" },
+  { id: "engagement_rate", label: "Engagement Rate (%)" },
   { id: "watch_hours", label: "Watch Hours" },
   { id: "net_subscribers", label: "Net Subscribers" },
   { id: "estimated_revenue", label: "Estimated Revenue" },
@@ -32,10 +36,10 @@ export const CHANNEL_COMPARE_COLUMNS: ChannelCompareColumn[] = [
   { id: "playback_cpm", label: "Playback CPM" },
   { id: "monetized_playbacks", label: "Monetized Playbacks" },
   { id: "ad_impressions", label: "Ad Impressions" },
-  { id: "short_views", label: "Short Views" },
-  { id: "long_views", label: "Long Views" },
-  { id: "live_views", label: "Live Views" },
-  { id: "unknown_views", label: "Unknown Views" }
+  { id: "short_views", label: "Short Public Views" },
+  { id: "long_views", label: "Long Public Views" },
+  { id: "live_views", label: "Live Public Views" },
+  { id: "unknown_views", label: "Unknown Public Views" }
 ];
 
 export const CHANNEL_COMPARE_COLUMN_IDS = CHANNEL_COMPARE_COLUMNS.map((column) => column.id);

@@ -16,11 +16,12 @@ type Props = {
   defaultStartDate: string;
 };
 
-type MetricKey = keyof Pick<RangeMetricValues, "estimatedRevenue" | "netSubscribers" | "views" | "watchHours">;
+type MetricKey = keyof Pick<RangeMetricValues, "estimatedRevenue" | "netSubscribers" | "views" | "engagedViews" | "watchHours">;
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669", "#7c3aed", "#be123c"];
 const METRICS: Array<{ metricKey: MetricKey; label: string; formatter: (value: number) => string }> = [
-  { metricKey: "views", label: "Daily views", formatter: formatCompact },
+  { metricKey: "views", label: "Daily public views", formatter: formatCompact },
+  { metricKey: "engagedViews", label: "Daily engaged views", formatter: formatCompact },
   { metricKey: "watchHours", label: "Daily watch hours", formatter: formatCompact },
   { metricKey: "netSubscribers", label: "Daily net subscribers", formatter: formatSigned },
   { metricKey: "estimatedRevenue", label: "Daily estimated revenue", formatter: formatCurrency }
@@ -78,7 +79,8 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
     setData(null);
   };
 
-  const metrics = canViewRevenue ? METRICS : METRICS.filter((metric) => metric.metricKey !== "estimatedRevenue");
+  const metrics = (canViewRevenue ? METRICS : METRICS.filter((metric) => metric.metricKey !== "estimatedRevenue"))
+    .filter((metric) => metric.metricKey !== "engagedViews" || data?.engagedViewsAvailable !== false);
 
   return (
     <div className="grid gap-4">
@@ -152,8 +154,14 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
             </CardContent>
           </Card>
 
-          <section className={`grid gap-3 sm:grid-cols-2 ${canViewRevenue ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
-            <SummaryCard label="Views" value={formatCompact(data.totals.views)} />
+          {data.publicViewMethodologyWarning ? (
+            <ErrorMessage message="This range crosses August 24, 2026, so public views use mixed counting definitions. Use engaged views for performance comparisons." />
+          ) : null}
+
+          <section className={`grid gap-3 sm:grid-cols-2 ${canViewRevenue ? "xl:grid-cols-6" : "xl:grid-cols-5"}`}>
+            <SummaryCard label="Public views" value={formatCompact(data.totals.views)} />
+            <SummaryCard label="Engaged views" value={data.engagedViewsAvailable ? formatCompact(data.totals.engagedViews ?? 0) : "Unavailable"} />
+            <SummaryCard label="Engagement rate" value={data.engagedViewsAvailable && data.totals.engagementRate !== null ? `${data.totals.engagementRate.toFixed(1)}%` : "Unavailable"} />
             <SummaryCard label="Watch hours" value={formatCompact(data.totals.watchHours)} />
             <SummaryCard label="Net subscribers" value={formatSigned(data.totals.netSubscribers)} />
             {canViewRevenue ? <SummaryCard label="Estimated revenue" value={formatCurrency(data.totals.estimatedRevenue ?? 0)} /> : null}
@@ -210,8 +218,8 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
             <CardHeader><CardTitle className="text-base">Channel totals for selected range</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full min-w-[44rem] text-sm">
-                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="px-3 py-2">Channel</th><th className="px-3 py-2 text-right">Views</th><th className="px-3 py-2 text-right">Watch hours</th><th className="px-3 py-2 text-right">Net subscribers</th>{canViewRevenue ? <th className="px-3 py-2 text-right">Revenue</th> : null}</tr></thead>
-                <tbody>{data.series.map((item, index) => <tr className="border-b last:border-0" key={item.channel.channelId}><td className="px-3 py-3 font-bold"><span className="mr-2 inline-block size-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{item.channel.title}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.views)}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.watchHours)}</td><td className="px-3 py-3 text-right tabular-nums">{formatSigned(item.totals.netSubscribers)}</td>{canViewRevenue ? <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.totals.estimatedRevenue ?? 0)}</td> : null}</tr>)}</tbody>
+                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="px-3 py-2">Channel</th><th className="px-3 py-2 text-right">Public views</th><th className="px-3 py-2 text-right">Engaged views</th><th className="px-3 py-2 text-right">Engagement</th><th className="px-3 py-2 text-right">Watch hours</th><th className="px-3 py-2 text-right">Net subscribers</th>{canViewRevenue ? <th className="px-3 py-2 text-right">Revenue</th> : null}</tr></thead>
+                <tbody>{data.series.map((item, index) => <tr className="border-b last:border-0" key={item.channel.channelId}><td className="px-3 py-3 font-bold"><span className="mr-2 inline-block size-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{item.channel.title}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.views)}</td><td className="px-3 py-3 text-right tabular-nums">{item.totals.engagedViews === null ? "Unavailable" : formatNumber(item.totals.engagedViews)}</td><td className="px-3 py-3 text-right tabular-nums">{item.totals.engagementRate === null ? "Unavailable" : `${item.totals.engagementRate.toFixed(1)}%`}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.watchHours)}</td><td className="px-3 py-3 text-right tabular-nums">{formatSigned(item.totals.netSubscribers)}</td>{canViewRevenue ? <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.totals.estimatedRevenue ?? 0)}</td> : null}</tr>)}</tbody>
               </table>
             </CardContent>
           </Card>

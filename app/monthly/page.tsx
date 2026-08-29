@@ -49,6 +49,7 @@ import {
   type VideoPerformanceRow
 } from "@/lib/youtube-performance";
 import {
+  calculateEngagementRate,
   calculateNetSubscribers,
   type MetricTotals
 } from "@/lib/youtube-performance-utils";
@@ -99,7 +100,7 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
           month: dashboard.selectedMonth
         })
       : null;
-  const visibleMonthlyTargetMetrics = getVisibleMonthlyTargetMetrics(canViewRevenue);
+  const visibleMonthlyTargetMetrics = getVisibleMonthlyTargetMetrics(canViewRevenue, dashboard.selectedMonth);
   const hasMonthlyTargets = Boolean(
     monthlyTargetData?.schemaReady &&
       visibleMonthlyTargetMetrics.some((metric) => monthlyTargetData.totals.target[metric.key] !== null)
@@ -209,13 +210,30 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
 
           {canShowComparisonData ? (
             <>
-              <section className="youtube-report-kpi-grid grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <section className="youtube-report-kpi-grid grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <MetricCard
-                  title="Views"
+                  title="Public Views"
                   value={formatCompactNumber(dashboard.currentTotals.views)}
                   detail={`${formatSignedPercent(dashboard.growth.views)} vs ${formatMonthLabel(dashboard.previousMonth)}`}
                   icon={Eye}
                   trend={dashboard.growth.views}
+                />
+                <MetricCard
+                  title="Engaged Views"
+                  value={dashboard.engagedViewsAvailable ? formatCompactNumber(dashboard.currentTotals.engagedViews) : "Unavailable"}
+                  detail={dashboard.engagedViewsAvailable
+                    ? `${formatSignedPercent(dashboard.growth.engagedViews)} vs ${formatMonthLabel(dashboard.previousMonth)}`
+                    : "Run the engaged-view backfill; public views are not substituted."}
+                  icon={Eye}
+                  trend={dashboard.engagedViewsAvailable ? dashboard.growth.engagedViews : undefined}
+                />
+                <MetricCard
+                  title="Engagement Rate"
+                  value={dashboard.engagedViewsAvailable
+                    ? formatNullablePercent(calculateEngagementRate(dashboard.currentTotals.engagedViews, dashboard.currentTotals.views))
+                    : "Unavailable"}
+                  detail="Engaged views ÷ public views"
+                  icon={Target}
                 />
                 <MetricCard
                   title="Watch Time"
@@ -450,7 +468,7 @@ function LongShortViewsCard({
   rows,
   compact = false
 }: {
-  rows: Array<{ contentType: ContentTypeFilter; views: number }>;
+  rows: Array<{ contentType: ContentTypeFilter; views: number; engagedViews: number }>;
   compact?: boolean;
 }) {
   const body = (
@@ -460,7 +478,12 @@ function LongShortViewsCard({
           <div key={item.contentType} className="space-y-1">
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="min-w-0 font-semibold capitalize">{contentTypeLabel(item.contentType)}</span>
-              <span className="whitespace-nowrap tabular-nums">{formatCompactNumber(item.views)} views</span>
+              <span className="whitespace-nowrap text-right tabular-nums">
+                {formatCompactNumber(item.views)} public · {formatCompactNumber(item.engagedViews)} engaged
+                <span className="block text-xs text-muted-foreground">
+                  {formatNullablePercent(calculateEngagementRate(item.engagedViews, item.views))} engagement
+                </span>
+              </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary" style={{ width: `${getSplitWidth(item.views, rows)}%` }} />
@@ -479,7 +502,7 @@ function LongShortViewsCard({
         <CardContent className="p-5">
           <div className="mb-4 flex items-center gap-2 text-base font-black">
             <Film className="size-4 text-primary" />
-            Views breakdown
+            Public and engaged views
           </div>
           {body}
         </CardContent>
@@ -492,7 +515,7 @@ function LongShortViewsCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Film className="size-4 text-primary" />
-          Views breakdown
+          Public and engaged views
         </CardTitle>
       </CardHeader>
       <CardContent>{body}</CardContent>
@@ -748,6 +771,10 @@ function formatSignedPercent(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
+}
+
+function formatNullablePercent(value: number | null) {
+  return value === null ? "Not available" : formatPercent(value);
 }
 
 function formatMonthLabel(month: string) {

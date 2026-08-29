@@ -24,6 +24,11 @@ export function buildRangeMonthlyRows(data: RangeDashboardData): RangeMonthlyExp
             : current.estimatedRevenue + (point.estimatedRevenue ?? 0),
         netSubscribers: current.netSubscribers + point.netSubscribers,
         views: current.views + point.views,
+        engagedViews:
+          current.engagedViews === null && point.engagedViews === null
+            ? null
+            : (current.engagedViews ?? 0) + (point.engagedViews ?? 0),
+        engagementRate: null,
         watchHours: current.watchHours + point.watchHours
       });
     }
@@ -31,6 +36,7 @@ export function buildRangeMonthlyRows(data: RangeDashboardData): RangeMonthlyExp
     return months.map((month) => {
       const monthStart = `${month}-01`;
       const monthEnd = lastDayOfMonth(month);
+      const values = valuesByMonth.get(month) ?? emptyValues(data.totals.estimatedRevenue !== null);
 
       return {
         channelId: series.channel.channelId,
@@ -38,7 +44,9 @@ export function buildRangeMonthlyRows(data: RangeDashboardData): RangeMonthlyExp
         month,
         periodEnd: monthEnd < data.endDate ? monthEnd : data.endDate,
         periodStart: monthStart > data.startDate ? monthStart : data.startDate,
-        ...(valuesByMonth.get(month) ?? emptyValues(data.totals.estimatedRevenue !== null))
+        ...values,
+        engagementRate:
+          values.engagedViews === null ? null : calculateEngagementRate(values.engagedViews, values.views)
       };
     });
   });
@@ -52,7 +60,9 @@ export function buildRangeMonthlyCsv(data: RangeDashboardData) {
     "Month",
     "Period Start",
     "Period End",
-    "Views",
+    "Public Views",
+    "Engaged Views",
+    "Engagement Rate (%)",
     "Watch Hours",
     "Net Subscribers",
     ...(includeRevenue ? ["Estimated Revenue (USD)"] : [])
@@ -64,6 +74,8 @@ export function buildRangeMonthlyCsv(data: RangeDashboardData) {
     row.periodStart,
     row.periodEnd,
     formatCsvNumber(row.views),
+    row.engagedViews === null ? "Unavailable" : formatCsvNumber(row.engagedViews),
+    row.engagementRate === null ? "Unavailable" : formatCsvNumber(row.engagementRate),
     formatCsvNumber(row.watchHours),
     formatCsvNumber(row.netSubscribers),
     ...(includeRevenue ? [formatCsvNumber(row.estimatedRevenue ?? 0)] : [])
@@ -95,12 +107,18 @@ function emptyValues(includeRevenue: boolean): RangeMetricValues {
     estimatedRevenue: includeRevenue ? 0 : null,
     netSubscribers: 0,
     views: 0,
+    engagedViews: null,
+    engagementRate: null,
     watchHours: 0
   };
 }
 
 function formatCsvNumber(value: number) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
+}
+
+function calculateEngagementRate(engagedViews: number, publicViews: number) {
+  return publicViews > 0 ? (engagedViews / publicViews) * 100 : null;
 }
 
 function escapeCsvCell(value: string) {

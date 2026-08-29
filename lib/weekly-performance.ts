@@ -1,7 +1,7 @@
 import { createDatabaseAdminClient } from "@/lib/database";
 import { ensureYoutubeAnalyticsRangeData } from "@/lib/youtube-auto-sync";
 import type { StoredYoutubeManagedChannel } from "@/lib/youtube-managed-channels";
-import { calculateNetSubscribers, type VideoContentType } from "@/lib/youtube-performance-utils";
+import { calculateEngagementRate, calculateNetSubscribers, rangeUsesMixedPublicViewMethodology, type VideoContentType } from "@/lib/youtube-performance-utils";
 import {
   getDefaultWeeklyRange,
   getMonthToMonthRanges,
@@ -23,6 +23,9 @@ export type WeeklyMetricValues = {
   rpm: number;
   shortVideosPublished: number;
   views: number;
+  engagedViews: number;
+  engagementRate: number | null;
+  engagedViewsAvailable: boolean;
   watchHours: number;
 };
 
@@ -47,7 +50,7 @@ export type WeeklyChannelPerformanceRow = {
   weekOverWeek: Record<WeeklyComparisonMetric, WeeklyMetricComparison>;
 };
 
-export type WeeklyComparisonMetric = "views" | "watchHours" | "netSubscribers" | "estimatedRevenue" | "rpm";
+export type WeeklyComparisonMetric = "views" | "engagedViews" | "watchHours" | "netSubscribers" | "estimatedRevenue" | "rpm";
 
 export type WeeklyTrendPoint = {
   label: string;
@@ -69,6 +72,7 @@ export type WeeklyPerformanceDashboardData = {
     weekOverWeek: Record<WeeklyComparisonMetric, WeeklyMetricComparison>;
   };
   weeklyTrend: WeeklyTrendPoint[];
+  publicViewMethodologyWarning: boolean;
 };
 
 type ChannelMetricRow = {
@@ -83,6 +87,7 @@ type ChannelMetricRow = {
   subscribers_gained: number | string | null;
   subscribers_lost: number | string | null;
   views: number | string | null;
+  engaged_views: number | string | null;
 };
 
 type PublishedVideoRow = {
@@ -104,10 +109,13 @@ type MetricAccumulator = {
   subscribersGained: number;
   subscribersLost: number;
   views: number;
+  engagedViews: number;
+  engagedViewsAvailable: boolean;
 };
 
 const COMPARISON_METRICS: WeeklyComparisonMetric[] = [
   "views",
+  "engagedViews",
   "watchHours",
   "netSubscribers",
   "estimatedRevenue",
@@ -208,6 +216,10 @@ export async function getWeeklyPerformanceDashboard({
     monthToDateRange: monthRanges.current,
     previousMonthRange: monthRanges.previous,
     previousWeekRange,
+    publicViewMethodologyWarning: rangeUsesMixedPublicViewMethodology(
+      trailingWeekRanges[0]?.startDate ?? startDate,
+      endDate
+    ),
     rows,
     selectedRange: { endDate, startDate },
     totals: {
@@ -236,7 +248,9 @@ export function buildWeeklyReportRows(
     includeRevenue
       ? [
           "Channel",
-          "Views",
+          "Public Views",
+          "Engaged Views",
+          "Engagement Rate (%)",
           "Watch Hours",
           "Net Subscribers",
           "Estimated Revenue",
@@ -253,7 +267,9 @@ export function buildWeeklyReportRows(
         ]
       : [
           "Channel",
-          "Views",
+          "Public Views",
+          "Engaged Views",
+          "Engagement Rate (%)",
           "Watch Hours",
           "Net Subscribers",
           "Long Videos Published",
@@ -271,6 +287,8 @@ export function buildWeeklyReportRows(
         ? [
             row.channel.title,
             row.current.views,
+            row.current.engagedViewsAvailable ? row.current.engagedViews : "Unavailable",
+            roundNullable(row.current.engagementRate),
             round(row.current.watchHours),
             row.current.netSubscribers,
             round(row.current.estimatedRevenue),
@@ -288,6 +306,8 @@ export function buildWeeklyReportRows(
         : [
             row.channel.title,
             row.current.views,
+            row.current.engagedViewsAvailable ? row.current.engagedViews : "Unavailable",
+            roundNullable(row.current.engagementRate),
             round(row.current.watchHours),
             row.current.netSubscribers,
             row.current.longVideosPublished,
@@ -624,7 +644,7 @@ async function getChannelMetricRowsWithColumns(
     const { data, error } = await db
       .from("youtube_channel_daily_metrics")
       .select(
-        `channel_id,day,views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,monetized_playbacks,ad_impressions,playback_based_cpm${ctrColumn}`
+        `channel_id,day,views,engaged_views,estimated_minutes_watched,subscribers_gained,subscribers_lost,estimated_revenue,monetized_playbacks,ad_impressions,playback_based_cpm${ctrColumn}`
       )
       .in("channel_id", channelIds)
       .gte("day", startDate)
@@ -703,6 +723,8 @@ async function getPublishedVideoRows(channelIds: string[], startDate: string, en
 
 function addChannelMetricRowToAccumulator(accumulator: MetricAccumulator, row: ChannelMetricRow) {
   accumulator.views += toNumber(row.views);
+  accumulator.engagedViews += toNumber(row.engaged_views);
+  accumulator.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
   accumulator.estimatedMinutesWatched += toNumber(row.estimated_minutes_watched);
   accumulator.subscribersGained += toNumber(row.subscribers_gained);
   accumulator.subscribersLost += toNumber(row.subscribers_lost);
@@ -748,6 +770,11 @@ function accumulatorToMetricValues(accumulator: MetricAccumulator): WeeklyMetric
     rpm,
     shortVideosPublished: 0,
     views: Math.round(accumulator.views),
+    engagedViews: Math.round(accumulator.engagedViews),
+    engagedViewsAvailable: accumulator.engagedViewsAvailable,
+    engagementRate: accumulator.engagedViewsAvailable
+      ? calculateEngagementRate(accumulator.engagedViews, accumulator.views)
+      : null,
     watchHours
   };
 }
@@ -760,6 +787,8 @@ function sumMetricValues(values: WeeklyMetricValues[]) {
 
   for (const value of values) {
     accumulator.views += value.views;
+    accumulator.engagedViews += value.engagedViews;
+    accumulator.engagedViewsAvailable ||= value.engagedViewsAvailable;
     accumulator.estimatedMinutesWatched += value.watchHours * 60;
     accumulator.estimatedRevenue += value.estimatedRevenue;
     accumulator.monetizedPlaybacks += value.revenueGeneratingViews;
@@ -791,7 +820,9 @@ function createAccumulator(): MetricAccumulator {
     playbackCpmTotal: 0,
     subscribersGained: 0,
     subscribersLost: 0,
-    views: 0
+    views: 0,
+    engagedViews: 0,
+    engagedViewsAvailable: false
   };
 }
 

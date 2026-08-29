@@ -102,6 +102,15 @@ Useful options:
 - `--channel=UC...` limits the run to one channel; repeat it or comma-separate IDs for multiple channels.
 - `--start=YYYY-MM-DD --end=YYYY-MM-DD` syncs a custom range.
 - `--concurrency=2` controls how many channels sync at once.
+- `--include-current` extends the range through yesterday instead of stopping at the last completed month.
+
+After applying the August 2026 engaged-view schema update, backfill the rolling baseline window plus the current month:
+
+```bash
+npm run youtube:backfill-engaged
+```
+
+This force-refreshes 13 calendar months so `engagedViews` is available for the 12-month target baseline and current-month reporting.
 
 ## Database
 
