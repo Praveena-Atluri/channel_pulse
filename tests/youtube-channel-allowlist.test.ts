@@ -29,8 +29,39 @@ test("filters CMS channels by stored channel IDs and uses management labels", ()
 
   assert.deepEqual(filterFocusedYouTubeChannels(channels).map((channel) => channel.title), [
     "TeluguOne",
-    "Navvula TV",
-    "Old Songs Telugu"
+    "Old Songs Telugu",
+    "Navvula TV"
   ]);
   assert.equal(FOCUSED_YOUTUBE_CHANNELS.length, 23);
+});
+
+test("keeps the requested primary channel order before the unchanged KidsOne channels", () => {
+  assert.deepEqual(
+    FOCUSED_YOUTUBE_CHANNELS.map((channel) => channel.title),
+    [
+      "TeluguOne",
+      "Old Songs Telugu",
+      "Navvula TV",
+      "TeluguOne Music",
+      "Tone News",
+      "BhaktiOne",
+      "TeluguOne Cinema",
+      "Tone Academy",
+      "TeluguOne Health",
+      "Tone Agri",
+      "TeluguOne Originals",
+      "TeluguOne Food",
+      "Tone Fashion",
+      "Naveena Column",
+      "KidsOne",
+      "KidsOne Hindi",
+      "KidsOne Telugu",
+      "KidsOne Odia",
+      "KidsOne Tamil",
+      "KidsOne Kannada",
+      "KidsOne Malayalam",
+      "KidsOne Gujarati",
+      "KidsOne Bhojpuri"
+    ]
+  );
 });

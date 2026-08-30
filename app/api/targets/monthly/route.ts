@@ -16,7 +16,9 @@ import {
   isEditableTargetMonth,
   normalizeMonthlyTargetBaselineSource,
   normalizeEditableTargetMonth,
-  type MonthlyTargetBaselineSource
+  validateMonthlyTargetCustomBaselineRange,
+  type MonthlyTargetBaselineSource,
+  type MonthlyTargetCustomBaselineRange
 } from "@/lib/monthly-target-metrics";
 import {
   getMonthlyTargetDashboardDataSafe,
@@ -29,7 +31,9 @@ import { listStoredYoutubeManagedChannels, type StoredYoutubeManagedChannel } fr
 export const dynamic = "force-dynamic";
 
 type SaveTargetsRequestBody = {
+  baselineEndDate?: unknown;
   baselineSource?: unknown;
+  baselineStartDate?: unknown;
   month?: unknown;
   rows?: Array<{
     channelId?: unknown;
@@ -51,14 +55,18 @@ export async function GET(request: NextRequest) {
   const baseline = await resolveBaselineSelection({
     channels: selectedChannels.channels,
     month,
+    requestedBaselineEndDate: request.nextUrl.searchParams.get("baselineEndDate"),
+    requestedBaselineStartDate: request.nextUrl.searchParams.get("baselineStartDate"),
     requestedBaselineSource: request.nextUrl.searchParams.get("baseline")
   });
+  if ("error" in baseline) return NextResponse.json({ error: baseline.error }, { status: 400 });
   const dashboard = await getMonthlyTargetDashboardDataSafe({
     baselineMonth: baseline.month,
     baselineMonths: baseline.months,
     baselineSource: baseline.source,
     canViewRevenue,
     channels: selectedChannels.channels,
+    customBaselineRange: baseline.customRange,
     month
   });
 
@@ -102,6 +110,15 @@ export async function PUT(request: NextRequest) {
   const selectedChannels = await resolveChannelsForIds(rows.map((row) => row.channelId), account);
   if ("error" in selectedChannels) return selectedChannels.error;
 
+  const baseline = await resolveBaselineSelection({
+    channels: selectedChannels.channels,
+    month,
+    requestedBaselineEndDate: typeof body.baselineEndDate === "string" ? body.baselineEndDate : null,
+    requestedBaselineStartDate: typeof body.baselineStartDate === "string" ? body.baselineStartDate : null,
+    requestedBaselineSource: typeof body.baselineSource === "string" ? body.baselineSource : null
+  });
+  if ("error" in baseline) return NextResponse.json({ error: baseline.error }, { status: 400 });
+
   try {
     await saveMonthlyTargets({
       canEditRevenue: canViewRevenue,
@@ -113,17 +130,13 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 
-  const baseline = await resolveBaselineSelection({
-    channels: selectedChannels.channels,
-    month,
-    requestedBaselineSource: typeof body.baselineSource === "string" ? body.baselineSource : null
-  });
   const dashboard = await getMonthlyTargetDashboardDataSafe({
     baselineMonth: baseline.month,
     baselineMonths: baseline.months,
     baselineSource: baseline.source,
     canViewRevenue,
     channels: selectedChannels.channels,
+    customBaselineRange: baseline.customRange,
     month
   });
 
@@ -139,26 +152,51 @@ export async function PUT(request: NextRequest) {
 async function resolveBaselineSelection({
   channels,
   month,
+  requestedBaselineEndDate,
+  requestedBaselineStartDate,
   requestedBaselineSource
 }: {
   channels: StoredYoutubeManagedChannel[];
   month: string;
+  requestedBaselineEndDate: string | null;
+  requestedBaselineStartDate: string | null;
   requestedBaselineSource: string | null;
-}): Promise<{ month: string; months: string[]; source: MonthlyTargetBaselineSource }> {
+}): Promise<
+  | {
+      customRange?: MonthlyTargetCustomBaselineRange;
+      month: string;
+      months: string[];
+      source: MonthlyTargetBaselineSource;
+    }
+  | { error: string }
+> {
   const baselineMonth = await resolveMonthlyTargetBaselineMonth({
     channels,
     month
   });
   const baselineMonths = getTargetBaselineMonthOptionsFromAnchor(baselineMonth);
+  const source = normalizeMonthlyTargetBaselineSource(
+    requestedBaselineSource,
+    baselineMonths,
+    getDefaultMonthlyTargetBaselineSource(month)
+  );
+  const customRange =
+    source === "custom"
+      ? {
+          endDate: requestedBaselineEndDate?.trim() ?? "",
+          startDate: requestedBaselineStartDate?.trim() ?? ""
+        }
+      : undefined;
+  if (customRange) {
+    const validationError = validateMonthlyTargetCustomBaselineRange(customRange, month);
+    if (validationError) return { error: validationError };
+  }
 
   return {
+    ...(customRange ? { customRange } : {}),
     month: baselineMonth,
     months: baselineMonths,
-    source: normalizeMonthlyTargetBaselineSource(
-      requestedBaselineSource,
-      baselineMonths,
-      getDefaultMonthlyTargetBaselineSource(month)
-    )
+    source
   };
 }
 

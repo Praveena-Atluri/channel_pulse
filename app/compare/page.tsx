@@ -272,30 +272,15 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
             />
           ) : null}
 
-          {dashboard.publicViewMethodologyWarning ? (
-            <StatusPanel
-              title="Public-view counting changed on August 24, 2026"
-              message="These ranges use different or mixed public-view definitions. Compare engaged views for accountable performance; public views are shown only as reach."
-            />
-          ) : null}
-
           {canShowComparisonData ? (
             <>
             <section
               className={
                 canViewRevenue
-                  ? "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-2 xl:grid-cols-5"
-                  : "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-4"
+                  ? "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4"
+                  : "youtube-report-kpi-grid grid items-start gap-4 md:grid-cols-3"
               }
             >
-              <ComparisonMetricCard
-                title="Public Views"
-                rangeOneValue={formatCompactNumber(dashboard.deltas.views.current)}
-                rangeTwoValue={formatCompactNumber(dashboard.deltas.views.previous)}
-                delta={dashboard.deltas.views}
-                deltaLabel={formatSignedCompactNumber(dashboard.deltas.views.absolute)}
-                icon={Eye}
-              />
               <ComparisonMetricCard
                 title="Engaged Views"
                 rangeOneValue={dashboard.primary.engagedViewsAvailable ? formatCompactNumber(dashboard.deltas.engagedViews.current) : "Unavailable"}
@@ -355,14 +340,16 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
             {canShowVideoLeaderboards ? (
               <section className="youtube-report-two-col youtube-compare-video-section grid gap-4 xl:grid-cols-2">
                 <VideoTable
-                  title="Top Viewed Videos In Range 1"
-                  rows={toVideoTableRows(dashboard.topViewedRangeOneVideos, "views")}
-                  metric="views"
+                  title="Top Engaged Videos In Range 1"
+                  rows={toVideoTableRows(dashboard.topEngagedRangeOneVideos, "engagedViews")}
+                  metric="engagedViews"
+                  unavailableMessage={dashboard.primary.engagedViewsAvailable ? null : "Engaged views are unavailable for this range."}
                 />
                 <VideoTable
-                  title="Top Viewed Videos In Range 2"
-                  rows={toVideoTableRows(dashboard.topViewedRangeTwoVideos, "views")}
-                  metric="views"
+                  title="Top Engaged Videos In Range 2"
+                  rows={toVideoTableRows(dashboard.topEngagedRangeTwoVideos, "engagedViews")}
+                  metric="engagedViews"
+                  unavailableMessage={dashboard.comparison.engagedViewsAvailable ? null : "Engaged views are unavailable for this range."}
                 />
               </section>
             ) : null}
@@ -400,13 +387,13 @@ function ChannelAnalyticsCharts({
   const pieMetrics = [
     {
       formatter: formatCompactNumber,
-      getValue: (row: ComparisonChannelBreakdownRow) => row.primary.views,
-      title: "Range 1 View Share"
+      getValue: (row: ComparisonChannelBreakdownRow) => row.primary.engagedViews,
+      title: "Range 1 Engaged View Share"
     },
     {
       formatter: formatCompactNumber,
-      getValue: (row: ComparisonChannelBreakdownRow) => row.comparison.views,
-      title: "Range 2 View Share"
+      getValue: (row: ComparisonChannelBreakdownRow) => row.comparison.engagedViews,
+      title: "Range 2 Engaged View Share"
     },
     ...(canViewRevenue
       ? [
@@ -465,15 +452,6 @@ function ChannelMetricsByChannel({
       <div className="grid gap-4 xl:grid-cols-2">
         {rows.map((row) => {
           const metrics = [
-            {
-              delta: row.deltas.views.absolute,
-              deltaFormatter: formatSignedCompactNumber,
-              formatter: formatCompactNumber,
-              icon: Eye,
-              label: "Public views",
-              primary: row.primary.views,
-              comparison: row.comparison.views
-            },
             {
               delta: row.deltas.engagedViews.absolute,
               deltaFormatter: formatSignedCompactNumber,
@@ -733,9 +711,9 @@ function ChannelBreakdownTable({
           <thead>
             <tr className="border-b text-xs font-black uppercase text-muted-foreground">
               <th className="px-3 py-2 text-left">Channel</th>
-              <th className="px-3 py-2 text-right">Range 1 Public Views</th>
-              <th className="px-3 py-2 text-right">Range 2 Public Views</th>
-              <th className="px-3 py-2 text-right">R2-R1 Public Views</th>
+              <th className="px-3 py-2 text-right">Range 1 Engaged Views</th>
+              <th className="px-3 py-2 text-right">Range 2 Engaged Views</th>
+              <th className="px-3 py-2 text-right">R2-R1 Engaged Views</th>
               <th className="px-3 py-2 text-right">Range 1 Watch Hrs</th>
               <th className="px-3 py-2 text-right">Range 2 Watch Hrs</th>
               <th className="px-3 py-2 text-right">R2-R1 Watch Hrs</th>
@@ -762,17 +740,17 @@ function ChannelBreakdownTable({
                     <span className="line-clamp-2">{row.title}</span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">
-                    {formatCompactNumber(row.primary.views)}
+                    {formatCompactNumber(row.primary.engagedViews)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">
-                    {formatCompactNumber(row.comparison.views)}
+                    {formatCompactNumber(row.comparison.engagedViews)}
                   </td>
                   <td
                     className={`whitespace-nowrap px-3 py-3 text-right font-black tabular-nums ${getSignedMetricClass(
-                      row.deltas.views.absolute
+                      row.deltas.engagedViews.absolute
                     )}`}
                   >
-                    {formatSignedCompactNumber(row.deltas.views.absolute)}
+                    {formatSignedCompactNumber(row.deltas.engagedViews.absolute)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">
                     {formatCompactNumber(row.primary.estimatedMinutesWatched / 60)}
@@ -1040,9 +1018,9 @@ function FormatComparisonCard({
 }: {
   rows: Array<{
     contentType: ContentTypeFilter;
-    primaryViews: number;
-    comparisonViews: number;
-    viewsDelta: number;
+    primaryEngagedViews: number;
+    comparisonEngagedViews: number;
+    engagedViewsDelta: number;
     primaryRevenue: number;
     comparisonRevenue: number;
     revenueDelta: number;
@@ -1059,16 +1037,18 @@ function FormatComparisonCard({
       <CardContent className="space-y-4">
         {rows.length > 0 ? (
           rows.map((row) => {
-            const rowMaxViews = Math.max(row.primaryViews, row.comparisonViews, 1);
+            const rowMaxViews = Math.max(row.primaryEngagedViews, row.comparisonEngagedViews, 1);
 
             return (
               <div key={row.contentType} className="space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-semibold">{contentTypeLabel(row.contentType)}</span>
-                  <span className="text-muted-foreground">{formatSignedCompactNumber(row.viewsDelta)} views</span>
+                  <span className="text-muted-foreground">
+                    {formatSignedCompactNumber(row.engagedViewsDelta)} engaged views
+                  </span>
                 </div>
-                <ComparisonBar label="Range 1" value={row.primaryViews} max={rowMaxViews} />
-                <ComparisonBar label="Range 2" value={row.comparisonViews} max={rowMaxViews} muted />
+                <ComparisonBar label="Range 1" value={row.primaryEngagedViews} max={rowMaxViews} />
+                <ComparisonBar label="Range 2" value={row.comparisonEngagedViews} max={rowMaxViews} muted />
               </div>
             );
           })
@@ -1099,7 +1079,10 @@ function ComparisonBar({ label, value, max, muted = false }: { label: string; va
   );
 }
 
-function VideoTable({ metric: _metric, ...props }: Parameters<typeof YoutubeVideoTable>[0] & { metric?: "views" | "revenue" }) {
+function VideoTable({
+  metric: _metric,
+  ...props
+}: Parameters<typeof YoutubeVideoTable>[0] & { metric?: "engagedViews" | "revenue" }) {
   return <YoutubeVideoTable {...props} />;
 }
 
@@ -1154,7 +1137,9 @@ function buildCompareReportHref({
   }
 
   for (const columnId of CHANNEL_COMPARE_COLUMN_IDS.filter(
-    (columnId) => canViewRevenue || !isChannelCompareRevenueColumnId(columnId)
+    (columnId) =>
+      !["views", "short_views", "long_views", "live_views", "unknown_views"].includes(columnId) &&
+      (canViewRevenue || !isChannelCompareRevenueColumnId(columnId))
   )) {
     query.append("column", columnId);
   }
@@ -1335,11 +1320,11 @@ function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
-function toVideoTableRows(rows: VideoPerformanceRow[], metric: "views" | "revenue") {
+function toVideoTableRows(rows: VideoPerformanceRow[], metric: "engagedViews" | "revenue") {
   return rows.map((row) => ({
     videoId: row.videoId,
     title: row.title,
-    value: metric === "revenue" ? formatCurrency(row.estimatedRevenue) : formatCompactNumber(row.views),
+    value: metric === "revenue" ? formatCurrency(row.estimatedRevenue) : formatCompactNumber(row.engagedViews),
     subvalue: `${formatCompactNumber(row.estimatedMinutesWatched / 60)} hrs`,
     meta: [row.channelTitle, contentTypeLabel(row.contentType)]
   }));

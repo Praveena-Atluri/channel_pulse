@@ -21,13 +21,16 @@ import {
   TARGET_PERCENT_PRESETS,
   calculatePercentTarget,
   calculateTargetIncreasePercent,
+  getCustomBaselineMaximumEndDate,
   getDefaultMonthlyTargetBaselineSource,
   getEditableMonthlyTargetMetrics,
   getTargetBaselineMonthOptions,
   getVisibleMonthlyTargetMetrics,
+  isAverageMonthlyTargetMetric,
   isMonthlyTargetBaselineMonthSource,
   normalizeMonthlyTargetBaselineSource,
   normalizeTargetValue,
+  validateMonthlyTargetCustomBaselineRange,
   type MonthlyTargetBaselineSource,
   type MonthlyTargetMetric,
   type MonthlyTargetMetricDefinition,
@@ -54,6 +57,8 @@ type TargetsPayload = {
   baselineMonth: string;
   baselineMonths: string[];
   baselineSource: MonthlyTargetBaselineSource;
+  customBaselineEndDate?: string;
+  customBaselineStartDate?: string;
   error?: string;
   errorMessage?: string;
   month: string;
@@ -105,6 +110,10 @@ export function MonthlyTargetsDashboard({
   const [baselineSource, setBaselineSource] = useState<MonthlyTargetBaselineSource>(
     getDefaultMonthlyTargetBaselineSource(defaultMonth)
   );
+  const [customBaselineStartDate, setCustomBaselineStartDate] = useState("");
+  const [customBaselineEndDate, setCustomBaselineEndDate] = useState("");
+  const [draftCustomBaselineStartDate, setDraftCustomBaselineStartDate] = useState("");
+  const [draftCustomBaselineEndDate, setDraftCustomBaselineEndDate] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [schemaReady, setSchemaReady] = useState(true);
@@ -135,6 +144,11 @@ export function MonthlyTargetsDashboard({
   const hasLegacySeptemberTargets = rows.some((row) => row.requiresLegacyViewTargetRecalculation);
   const engagedViewsUnavailable = month >= "2026-09" && rows.some((row) => !row.engagedViewsAvailable);
   const engagedBaselineUnavailable = month >= "2026-09" && rows.some((row) => !row.engagedBaselineAvailable);
+  const averageViewPercentageUnavailable = rows.some((row) => !row.longAverageViewPercentageAvailable);
+  const averageViewPercentageBaselineUnavailable = rows.some(
+    (row) => !row.longAverageViewPercentageBaselineAvailable
+  );
+  const customBaselineMaximumEndDate = getCustomBaselineMaximumEndDate(month);
 
   useEffect(() => {
     const closeStatusDropdown = () => {
@@ -170,6 +184,21 @@ export function MonthlyTargetsDashboard({
   useEffect(() => {
     if (selectedChannelIds.length === 0) {
       setRows([]);
+      setIsLoading(false);
+      setMessage("");
+      setErrorMessage("");
+      return;
+    }
+
+    if (
+      baselineSource === "custom" &&
+      validateMonthlyTargetCustomBaselineRange(
+        { endDate: customBaselineEndDate, startDate: customBaselineStartDate },
+        month
+      )
+    ) {
+      setRows([]);
+      setIsLoading(false);
       setMessage("");
       setErrorMessage("");
       return;
@@ -177,6 +206,10 @@ export function MonthlyTargetsDashboard({
 
     const controller = new AbortController();
     const query = new URLSearchParams({ baseline: baselineSource, month });
+    if (baselineSource === "custom") {
+      query.set("baselineEndDate", customBaselineEndDate);
+      query.set("baselineStartDate", customBaselineStartDate);
+    }
     for (const channelId of selectedChannelIds) {
       query.append("channel", channelId);
     }
@@ -199,6 +232,14 @@ export function MonthlyTargetsDashboard({
         setBaselineMonth(payload.baselineMonth);
         setBaselineMonths(payload.baselineMonths);
         setBaselineSource(payload.baselineSource);
+        if (payload.baselineSource === "custom") {
+          const nextEndDate = payload.customBaselineEndDate ?? "";
+          const nextStartDate = payload.customBaselineStartDate ?? "";
+          setCustomBaselineEndDate(nextEndDate);
+          setCustomBaselineStartDate(nextStartDate);
+          setDraftCustomBaselineEndDate(nextEndDate);
+          setDraftCustomBaselineStartDate(nextStartDate);
+        }
         setRows(payload.rows.map(toEditableRow));
         if (!payload.schemaReady) {
           setErrorMessage(payload.errorMessage ?? "Apply the monthly targets schema before saving targets.");
@@ -215,7 +256,7 @@ export function MonthlyTargetsDashboard({
       });
 
     return () => controller.abort();
-  }, [month, selectedChannelIds, baselineSource]);
+  }, [month, selectedChannelIds, baselineSource, customBaselineEndDate, customBaselineStartDate]);
 
   const updateMonth = (nextMonth: string) => {
     const nextBaselineMonths = getTargetBaselineMonthOptions(nextMonth);
@@ -223,6 +264,27 @@ export function MonthlyTargetsDashboard({
     setMonth(nextMonth);
     setBaselineMonths(nextBaselineMonths);
     setBaselineSource(getDefaultMonthlyTargetBaselineSource(nextMonth));
+    setCustomBaselineEndDate("");
+    setCustomBaselineStartDate("");
+    setDraftCustomBaselineEndDate("");
+    setDraftCustomBaselineStartDate("");
+  };
+
+  const applyCustomBaselineRange = () => {
+    const validationError = validateMonthlyTargetCustomBaselineRange(
+      { endDate: draftCustomBaselineEndDate, startDate: draftCustomBaselineStartDate },
+      month
+    );
+    if (validationError) {
+      setErrorMessage(validationError);
+      setMessage("");
+      return;
+    }
+
+    setCustomBaselineEndDate(draftCustomBaselineEndDate);
+    setCustomBaselineStartDate(draftCustomBaselineStartDate);
+    setErrorMessage("");
+    setMessage("Applying custom monthly average baseline.");
   };
 
   const toggleChannel = (channelId: string) => {
@@ -266,7 +328,11 @@ export function MonthlyTargetsDashboard({
 
     setRows((current) =>
       current.map((row) => {
-        if (!row.hasBaselineData || (isEngagedViewMetric(metric) && !row.engagedBaselineAvailable)) return row;
+        if (
+          !row.hasBaselineData ||
+          (isEngagedViewMetric(metric) && !row.engagedBaselineAvailable) ||
+          (metric === "longAverageViewPercentage" && !row.longAverageViewPercentageBaselineAvailable)
+        ) return row;
 
         return {
           ...row,
@@ -280,7 +346,9 @@ export function MonthlyTargetsDashboard({
     setMessage(
       `${getMetricLabel(metric)} set to +${percent}% from ${formatBaselineSourceLabel(
         baselineSource,
-        baselineMonth
+        baselineMonth,
+        undefined,
+        { endDate: customBaselineEndDate, startDate: customBaselineStartDate }
       )} base.`
     );
     setErrorMessage("");
@@ -326,7 +394,13 @@ export function MonthlyTargetsDashboard({
 
     try {
       const response = await fetch("/api/targets/monthly", {
-        body: JSON.stringify({ baselineSource, month, rows: requestRows }),
+        body: JSON.stringify({
+          baselineEndDate: baselineSource === "custom" ? customBaselineEndDate : undefined,
+          baselineSource,
+          baselineStartDate: baselineSource === "custom" ? customBaselineStartDate : undefined,
+          month,
+          rows: requestRows
+        }),
         headers: { "content-type": "application/json" },
         method: "PUT"
       });
@@ -339,6 +413,14 @@ export function MonthlyTargetsDashboard({
       setBaselineMonth(payload.baselineMonth);
       setBaselineMonths(payload.baselineMonths);
       setBaselineSource(payload.baselineSource);
+      if (payload.baselineSource === "custom") {
+        const nextEndDate = payload.customBaselineEndDate ?? "";
+        const nextStartDate = payload.customBaselineStartDate ?? "";
+        setCustomBaselineEndDate(nextEndDate);
+        setCustomBaselineStartDate(nextStartDate);
+        setDraftCustomBaselineEndDate(nextEndDate);
+        setDraftCustomBaselineStartDate(nextStartDate);
+      }
       setRows(payload.rows.map(toEditableRow));
       setMessage(`Targets saved for ${requestRows.length} channel${requestRows.length === 1 ? "" : "s"}.`);
     } catch (error) {
@@ -354,6 +436,8 @@ export function MonthlyTargetsDashboard({
         baselineMonth,
         baselineMonths,
         baselineSource,
+        customBaselineEndDate,
+        customBaselineStartDate,
         metrics: editableMetrics,
         month,
         rows
@@ -492,29 +576,60 @@ export function MonthlyTargetsDashboard({
             </details>
           </div>
         ) : (
-          <label className="grid min-w-0 gap-1 text-sm font-semibold text-muted-foreground">
-            Baseline
-            <select
-              className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
-              value={baselineSource}
-              onChange={(event) =>
-                setBaselineSource(normalizeMonthlyTargetBaselineSource(event.target.value, baselineMonths))
-              }
-            >
-              {MONTHLY_TARGET_BASELINE_PRESETS.map((preset) => (
-                <option key={preset.value} value={preset.value}>
-                  {preset.label}
-                </option>
-              ))}
-              <optgroup label="Last one year months">
-                {baselineMonths.map((availableBaselineMonth) => (
-                  <option key={availableBaselineMonth} value={availableBaselineMonth}>
-                    {formatMonthLabel(availableBaselineMonth)}
+          <div className="grid min-w-0 gap-2">
+            <label className="grid min-w-0 gap-1 text-sm font-semibold text-muted-foreground">
+              Baseline
+              <select
+                className="h-11 w-full min-w-0 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+                value={baselineSource}
+                onChange={(event) =>
+                  setBaselineSource(normalizeMonthlyTargetBaselineSource(event.target.value, baselineMonths))
+                }
+              >
+                {MONTHLY_TARGET_BASELINE_PRESETS.map((preset) => (
+                  <option key={preset.value} value={preset.value}>
+                    {preset.label}
                   </option>
                 ))}
-              </optgroup>
-            </select>
-          </label>
+                <optgroup label="Last one year months">
+                  {baselineMonths.map((availableBaselineMonth) => (
+                    <option key={availableBaselineMonth} value={availableBaselineMonth}>
+                      {formatMonthLabel(availableBaselineMonth)}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </label>
+            {baselineSource === "custom" ? (
+              <div className="grid min-w-0 gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                <DateField
+                  label="Start date"
+                  max={customBaselineMaximumEndDate}
+                  value={draftCustomBaselineStartDate}
+                  onChange={setDraftCustomBaselineStartDate}
+                />
+                <DateField
+                  label="End date"
+                  max={customBaselineMaximumEndDate}
+                  min={draftCustomBaselineStartDate}
+                  value={draftCustomBaselineEndDate}
+                  onChange={setDraftCustomBaselineEndDate}
+                />
+                <button
+                  className={buttonVariants({ variant: "secondary", size: "sm", className: "h-10 rounded-md" })}
+                  disabled={isLoading}
+                  onClick={applyCustomBaselineRange}
+                  type="button"
+                >
+                  Apply range
+                </button>
+                <div className="text-xs font-semibold text-muted-foreground sm:col-span-3">
+                  Additive totals are scaled to {formatMonthLabel(month)}; percentage averages retain the selected
+                  range value.
+                </div>
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
 
@@ -534,6 +649,18 @@ export function MonthlyTargetsDashboard({
         <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
           One or more May–July engaged-view baselines are unavailable. Percentage target actions will skip those
           channels until the engaged-view backfill is complete.
+        </div>
+      ) : null}
+      {averageViewPercentageUnavailable ? (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
+          Long average percentage viewed is unavailable for one or more selected channels. Apply the schema and sync
+          the target month before reviewing achievement.
+        </div>
+      ) : null}
+      {averageViewPercentageBaselineUnavailable ? (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm font-semibold">
+          Long average percentage viewed is missing from one or more baselines. Percentage target actions will skip
+          those channels until the baseline months are synced.
         </div>
       ) : null}
 
@@ -616,7 +743,7 @@ export function MonthlyTargetsDashboard({
                     onChange={(event) =>
                       setBulkValues((current) => ({ ...current, [metric.key]: event.target.value }))
                     }
-                    placeholder="Manual value"
+                    placeholder={metric.key === "longAverageViewPercentage" ? "e.g. 45.0" : "Manual value"}
                     className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm font-semibold outline-none ring-offset-background focus:ring-2 focus:ring-ring"
                     inputMode="decimal"
                   />
@@ -706,7 +833,12 @@ export function MonthlyTargetsDashboard({
                     <td className="px-3 py-2 align-top">
                       <div className="font-bold text-foreground">{row.channelTitle}</div>
                       <div className="text-xs font-semibold text-muted-foreground">
-                        Baseline - {formatBaselineSourceLabel(baselineSource, baselineMonth, row.baselineSourceMonths)}
+                        Baseline - {formatBaselineSourceLabel(
+                          baselineSource,
+                          baselineMonth,
+                          row.baselineSourceMonths,
+                          { endDate: customBaselineEndDate, startDate: customBaselineStartDate }
+                        )}
                       </div>
                     </td>
                     {editableMetrics.map((metric) => (
@@ -726,6 +858,7 @@ export function MonthlyTargetsDashboard({
                           </span>
                           <TargetIncreasePercent
                             baseline={row.baseline[metric.key]}
+                            metric={metric.key}
                             target={row.target[metric.key]}
                           />
                         </div>
@@ -880,6 +1013,7 @@ type ChannelStatusMetricRow = {
   percent: number | null;
   sourceLabel?: string;
   target: number;
+  unavailable: boolean;
 };
 
 function buildTargetStatusSummaries(
@@ -894,6 +1028,7 @@ function buildTargetStatusSummaries(
     for (const row of rows) {
       const targetValue = normalizeTargetValueOrNull(metric.key, row.target[metric.key]);
       if (targetValue === null) continue;
+      if (metric.key === "longAverageViewPercentage" && !row.longAverageViewPercentageAvailable) continue;
 
       channelsWithTarget += 1;
       target += targetValue;
@@ -901,6 +1036,11 @@ function buildTargetStatusSummaries(
     }
 
     if (channelsWithTarget === 0) return [];
+
+    if (isAverageMonthlyTargetMetric(metric.key)) {
+      actual /= channelsWithTarget;
+      target /= channelsWithTarget;
+    }
 
     return [
       {
@@ -926,6 +1066,7 @@ function buildChannelProgressSummaries(
     for (const metric of metrics) {
       const targetValue = normalizeTargetValueOrNull(metric.key, row.target[metric.key]);
       if (targetValue === null) continue;
+      if (metric.key === "longAverageViewPercentage" && !row.longAverageViewPercentageAvailable) continue;
 
       targetCount += 1;
       percentTotal += calculateExportProgressPercent(row.actual[metric.key], targetValue) ?? 0;
@@ -1059,13 +1200,16 @@ function ChannelTargetStatusCard({
     if (target === null) return [];
 
     const actual = row.actual[metric.key];
+    const unavailable =
+      metric.key === "longAverageViewPercentage" && !row.longAverageViewPercentageAvailable;
     return [
       {
         actual,
         metric,
-        percent: calculateExportProgressPercent(actual, target),
+        percent: unavailable ? null : calculateExportProgressPercent(actual, target),
         sourceLabel: row.targetSourceLabels?.[metric.key],
-        target
+        target,
+        unavailable
       }
     ];
   });
@@ -1083,7 +1227,7 @@ function ChannelTargetStatusCard({
         <p className="mt-3 text-sm text-muted-foreground">No targets set for this channel.</p>
       ) : (
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {metricRows.map(({ actual, metric, percent, sourceLabel, target }) => (
+          {metricRows.map(({ actual, metric, percent, sourceLabel, target, unavailable }) => (
             <div className="rounded-md border bg-muted/20 p-3" key={metric.key}>
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -1093,13 +1237,15 @@ function ChannelTargetStatusCard({
                   ) : null}
                 </div>
                 <span className={cn("rounded-md px-2 py-1 text-[11px] font-black", getProgressBadgeClass(percent ?? 0))}>
-                  {formatPercent(percent ?? 0)}
+                  {unavailable ? "Unavailable" : formatPercent(percent ?? 0)}
                 </span>
               </div>
-              <ProgressBar percent={percent ?? 0} />
+              {unavailable ? null : <ProgressBar percent={percent ?? 0} />}
               <div className="mt-2 flex items-center justify-between gap-2 text-xs">
                 <span className="font-semibold text-muted-foreground">Achieved</span>
-                <span className="font-black tabular-nums">{formatMetricValue(metric.key, actual)}</span>
+                <span className="font-black tabular-nums">
+                  {unavailable ? "Unavailable" : formatMetricValue(metric.key, actual)}
+                </span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-2 text-xs">
                 <span className="font-semibold text-muted-foreground">Target</span>
@@ -1156,12 +1302,25 @@ function formatPercent(value: number) {
   return `${formatExportDecimal(value, 1)}%`;
 }
 
-function TargetIncreasePercent({ baseline, target }: { baseline: number; target: string }) {
+function TargetIncreasePercent({
+  baseline,
+  metric,
+  target
+}: {
+  baseline: number;
+  metric: MonthlyTargetMetric;
+  target: string;
+}) {
   const trimmedTarget = target.trim();
   if (!trimmedTarget) return null;
 
-  const targetValue = Number(trimmedTarget);
-  if (!Number.isFinite(targetValue) || targetValue < 0) return null;
+  let targetValue: number | null;
+  try {
+    targetValue = normalizeTargetValue(metric, trimmedTarget);
+  } catch {
+    return null;
+  }
+  if (targetValue === null) return null;
 
   const percent = calculateTargetIncreasePercent(baseline, targetValue);
   if (percent === null) return null;
@@ -1174,6 +1333,34 @@ function TargetIncreasePercent({ baseline, target }: { baseline: number; target:
   );
 }
 
+function DateField({
+  label,
+  max,
+  min,
+  onChange,
+  value
+}: {
+  label: string;
+  max?: string;
+  min?: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid min-w-0 gap-1 text-xs font-semibold text-muted-foreground">
+      {label}
+      <input
+        className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(event.target.value)}
+        type="date"
+        value={value}
+      />
+    </label>
+  );
+}
+
 function getChannelPieColor(index: number) {
   return CHANNEL_PIE_COLORS[index % CHANNEL_PIE_COLORS.length];
 }
@@ -1182,6 +1369,8 @@ function buildTargetsExcelWorkbook({
   baselineMonth,
   baselineMonths,
   baselineSource,
+  customBaselineEndDate,
+  customBaselineStartDate,
   metrics,
   month,
   rows
@@ -1189,6 +1378,8 @@ function buildTargetsExcelWorkbook({
   baselineMonth: string;
   baselineMonths: string[];
   baselineSource: MonthlyTargetBaselineSource;
+  customBaselineEndDate: string;
+  customBaselineStartDate: string;
   metrics: readonly MonthlyTargetMetricDefinition[];
   month: string;
   rows: EditableTargetRow[];
@@ -1216,6 +1407,8 @@ function buildTargetsExcelWorkbook({
         baselineMonth,
         baselineMonths,
         baselineSource,
+        customBaselineEndDate,
+        customBaselineStartDate,
         sourceMonths: row.baselineSourceMonths
       })
     ];
@@ -1257,11 +1450,15 @@ function formatExportBaselineSourceLabel({
   baselineMonth,
   baselineMonths,
   baselineSource,
+  customBaselineEndDate,
+  customBaselineStartDate,
   sourceMonths
 }: {
   baselineMonth: string;
   baselineMonths: string[];
   baselineSource: MonthlyTargetBaselineSource;
+  customBaselineEndDate: string;
+  customBaselineStartDate: string;
   sourceMonths: Partial<Record<MonthlyTargetMetric, string | null>>;
 }) {
   if (baselineSource === "last-three-months-average") {
@@ -1272,7 +1469,10 @@ function formatExportBaselineSourceLabel({
     return months ? `Last 3 months average (${months})` : "Last 3 months average";
   }
 
-  return formatBaselineSourceLabel(baselineSource, baselineMonth, sourceMonths);
+  return formatBaselineSourceLabel(baselineSource, baselineMonth, sourceMonths, {
+    endDate: customBaselineEndDate,
+    startDate: customBaselineStartDate
+  });
 }
 
 function buildExcelXml(rows: Array<Array<string | number | null>>) {
@@ -1344,6 +1544,7 @@ function calculateExportProgressPercent(actual: number, target: number | null) {
 
 function formatExportMetricValue(metric: MonthlyTargetMetric, value: number) {
   if (metric === "estimatedRevenue") return formatExportDecimal(value, 2);
+  if (metric === "longAverageViewPercentage") return formatExportDecimal(value, 1);
   return metric === "watchHours" ? formatExportDecimal(value, 1) : Math.round(value);
 }
 
@@ -1399,12 +1600,17 @@ function getMetricLabel(metric: MonthlyTargetMetric) {
 }
 
 function isEngagedViewMetric(metric: MonthlyTargetMetric) {
-  return metric === "shortEngagedViews" || metric === "longEngagedViews";
+  return (
+    metric === "shortEngagedViews" ||
+    metric === "longEngagedViews" ||
+    metric === "longAverageViewPercentage"
+  );
 }
 
 function formatMetricValue(metric: MonthlyTargetMetric, value: number) {
   if (metric === "estimatedRevenue") return formatCompactCurrency(value);
   if (metric === "watchHours") return `${formatCompactNumber(value)} hrs`;
+  if (metric === "longAverageViewPercentage") return `${formatExportDecimal(value, 1)}%`;
   if (metric === "netSubscribers") return formatSignedNumber(value);
 
   return formatCompactNumber(value);
@@ -1422,16 +1628,31 @@ function formatCompactCurrency(value: number) {
 function formatBaselineSourceLabel(
   source: MonthlyTargetBaselineSource,
   baselineMonth: string,
-  sourceMonths?: Partial<Record<MonthlyTargetMetric, string | null>>
+  sourceMonths?: Partial<Record<MonthlyTargetMetric, string | null>>,
+  customRange?: { endDate: string; startDate: string }
 ) {
   if (source === "last-three-months-average") return "Last 3 months average";
   if (source === "highest-in-year") {
     const monthSummary = formatBaselineMonthSummary(sourceMonths);
     return monthSummary ? `Highest in last year (${monthSummary})` : "Highest in last year";
   }
+  if (source === "custom") {
+    return customRange?.startDate && customRange.endDate
+      ? `Custom monthly average (${formatDateLabel(customRange.startDate)}–${formatDateLabel(customRange.endDate)})`
+      : "Custom monthly average";
+  }
   if (isMonthlyTargetBaselineMonthSource(source)) return formatMonthLabel(source);
 
   return baselineMonth ? `Latest complete month (${formatMonthLabel(baselineMonth)})` : "Latest complete month";
+}
+
+function formatDateLabel(date: string) {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric"
+  }).format(parseUtcDate(date));
 }
 
 function formatBaselineMonthSummary(sourceMonths?: Partial<Record<MonthlyTargetMetric, string | null>>) {

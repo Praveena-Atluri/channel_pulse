@@ -125,16 +125,16 @@ export type YoutubeComparisonDashboardData = {
   availableContentTypes: VideoContentType[];
   contentTypeComparison: Array<{
     contentType: VideoContentType;
-    primaryViews: number;
-    comparisonViews: number;
-    viewsDelta: number;
+    primaryEngagedViews: number;
+    comparisonEngagedViews: number;
+    engagedViewsDelta: number;
     primaryRevenue: number;
     comparisonRevenue: number;
     revenueDelta: number;
   }>;
   channelBreakdown: ComparisonChannelBreakdownRow[];
-  topViewedRangeOneVideos: VideoPerformanceRow[];
-  topViewedRangeTwoVideos: VideoPerformanceRow[];
+  topEngagedRangeOneVideos: VideoPerformanceRow[];
+  topEngagedRangeTwoVideos: VideoPerformanceRow[];
   topRevenueRangeOneVideos: VideoPerformanceRow[];
   topRevenueRangeTwoVideos: VideoPerformanceRow[];
   latestSync: {
@@ -582,8 +582,8 @@ export async function getYoutubeComparisonDashboard(
           primaryContentTypeRows: [],
           comparisonContentTypeRows: []
         }),
-        topViewedRangeOneVideos: [],
-        topViewedRangeTwoVideos: [],
+        topEngagedRangeOneVideos: [],
+        topEngagedRangeTwoVideos: [],
         topRevenueRangeOneVideos: [],
         topRevenueRangeTwoVideos: [],
         latestSync
@@ -663,8 +663,8 @@ export async function getYoutubeComparisonDashboard(
         primaryContentTypeRows,
         comparisonContentTypeRows
       }),
-      topViewedRangeOneVideos: sortByMetric(primaryVideos.filteredRows, "views").slice(0, VIDEO_TABLE_RESULT_LIMIT),
-      topViewedRangeTwoVideos: sortByMetric(comparisonVideos.filteredRows, "views").slice(0, VIDEO_TABLE_RESULT_LIMIT),
+      topEngagedRangeOneVideos: sortByMetric(primaryVideos.filteredRows, "engagedViews").slice(0, VIDEO_TABLE_RESULT_LIMIT),
+      topEngagedRangeTwoVideos: sortByMetric(comparisonVideos.filteredRows, "engagedViews").slice(0, VIDEO_TABLE_RESULT_LIMIT),
       topRevenueRangeOneVideos: sortByMetric(primaryVideos.filteredRows, "estimatedRevenue").slice(
         0,
         VIDEO_TABLE_RESULT_LIMIT
@@ -1308,7 +1308,11 @@ function buildComparisonChannelBreakdown({
         }
       };
     })
-    .sort((left, right) => right.primary.views + right.comparison.views - (left.primary.views + left.comparison.views));
+    .sort(
+      (left, right) =>
+        right.primary.engagedViews + right.comparison.engagedViews -
+        (left.primary.engagedViews + left.comparison.engagedViews)
+    );
 }
 
 function buildChannelTotalsByChannelId(rows: ChannelMetricRow[]) {
@@ -1373,16 +1377,18 @@ function buildContentTypeComparison(
 
       return {
         contentType,
-        primaryViews: primary.views,
-        comparisonViews: comparison.views,
-        viewsDelta: comparison.views - primary.views,
+        primaryEngagedViews: primary.engagedViews,
+        comparisonEngagedViews: comparison.engagedViews,
+        engagedViewsDelta: comparison.engagedViews - primary.engagedViews,
         primaryRevenue: primary.estimatedRevenue,
         comparisonRevenue: comparison.estimatedRevenue,
         revenueDelta: comparison.estimatedRevenue - primary.estimatedRevenue
       };
     })
-    .filter((row) => shouldShowContentType(row.contentType, row.primaryViews + row.comparisonViews))
-    .sort((left, right) => right.primaryViews - left.primaryViews);
+    .filter((row) =>
+      shouldShowContentType(row.contentType, row.primaryEngagedViews + row.comparisonEngagedViews)
+    )
+    .sort((left, right) => right.primaryEngagedViews - left.primaryEngagedViews);
 }
 
 function buildAvailableContentTypes(rows: ContentTypeMetricRow[]) {
@@ -1466,7 +1472,10 @@ function subtractMetricTotals(left: MetricTotals, right: MetricTotals) {
   };
 }
 
-function sortByMetric(rows: VideoPerformanceRow[], metric: keyof Pick<MetricTotals, "views" | "estimatedRevenue">) {
+function sortByMetric(
+  rows: VideoPerformanceRow[],
+  metric: keyof Pick<MetricTotals, "views" | "engagedViews" | "estimatedRevenue">
+) {
   return [...rows].sort((left, right) => right[metric] - left[metric]);
 }
 
@@ -1588,8 +1597,8 @@ function emptyComparisonDashboard(filters: YoutubeComparisonFilters): YoutubeCom
     availableContentTypes: ["short", "long"],
     contentTypeComparison: [],
     channelBreakdown: [],
-    topViewedRangeOneVideos: [],
-    topViewedRangeTwoVideos: [],
+    topEngagedRangeOneVideos: [],
+    topEngagedRangeTwoVideos: [],
     topRevenueRangeOneVideos: [],
     topRevenueRangeTwoVideos: [],
     latestSync: null

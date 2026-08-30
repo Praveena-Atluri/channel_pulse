@@ -1113,14 +1113,24 @@ function buildTargetAchievementCells(
   metric: { key: MonthlyTargetMetric; label: string }
 ): XlsxCellValue[] {
   const progress = channel.progress[metric.key];
-  const engagedMetric = metric.key === "shortEngagedViews" || metric.key === "longEngagedViews";
+  const engagedMetric =
+    metric.key === "shortEngagedViews" ||
+    metric.key === "longEngagedViews" ||
+    metric.key === "longAverageViewPercentage";
   const achievementUnavailable = engagedMetric && !channel.engagedViewsAvailable;
+  const metricUnavailable =
+    achievementUnavailable ||
+    (metric.key === "longAverageViewPercentage" && !channel.longAverageViewPercentageAvailable);
 
   return [
-    progress.target ?? "Not set",
-    achievementUnavailable ? "Unavailable" : progress.actual,
-    achievementUnavailable || progress.percent === null ? "Unavailable" : progress.percent
+    progress.target === null ? "Not set" : formatTargetAchievementMetric(metric.key, progress.target),
+    metricUnavailable ? "Unavailable" : formatTargetAchievementMetric(metric.key, progress.actual),
+    metricUnavailable || progress.percent === null ? "Unavailable" : progress.percent
   ];
+}
+
+function formatTargetAchievementMetric(metric: MonthlyTargetMetric, value: number) {
+  return metric === "longAverageViewPercentage" ? `${value.toFixed(1)}%` : value;
 }
 
 function buildReportRows(

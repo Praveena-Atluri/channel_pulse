@@ -62,6 +62,8 @@ const CONTENT_TYPE_METRIC_SETS = [
   ["views"]
 ];
 
+const CONTENT_TYPE_AVERAGE_VIEW_METRIC_SETS = [["averageViewPercentage"]];
+
 const COUNTRY_METRIC_SETS = [
   ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue", "estimatedAdRevenue", "grossRevenue", "monetizedPlaybacks", "adImpressions", "playbackBasedCpm"],
   ["views", "engagedViews", "estimatedMinutesWatched", "estimatedRevenue"],
@@ -130,6 +132,7 @@ type DailyMetricAccumulator = Partial<MetricTotals> & {
   contentType?: VideoContentType;
   countryCode?: string;
   impressionsClickThroughRate?: number;
+  averageViewPercentage?: number;
 };
 
 type SyncRunRecord = {
@@ -466,6 +469,9 @@ function rowsFromReport(
     if (metrics.has("estimatedMinutesWatched")) {
       accumulator.estimatedMinutesWatched = readNumber(row, "estimatedMinutesWatched");
     }
+    if (metrics.has("averageViewPercentage")) {
+      accumulator.averageViewPercentage = readNumber(row, "averageViewPercentage");
+    }
     if (metrics.has("subscribersGained")) accumulator.subscribersGained = readNumber(row, "subscribersGained");
     if (metrics.has("subscribersLost")) accumulator.subscribersLost = readNumber(row, "subscribersLost");
     if (metrics.has("estimatedRevenue")) accumulator.estimatedRevenue = readNumber(row, "estimatedRevenue");
@@ -616,8 +622,8 @@ async function fetchDailyContentTypeReports(input: {
   warnings: string[];
 }) {
   const reports = await mapWithConcurrency(DAILY_CONTENT_TYPE_FILTERS, 3, async ({ analyticsValue, contentType }) => {
-    const reports = await fetchOptionalReports(
-      () =>
+    const [reports, averageViewReports] = await Promise.all([
+      fetchOptionalReports(() =>
         fetchDailyReportsWithFallback({
           accessToken: input.accessToken,
           config: input.config,
@@ -631,11 +637,30 @@ async function fetchDailyContentTypeReports(input: {
           ),
           sort: ["day"]
         }),
-      `${input.channelId} ${analyticsValue}`,
-      input.warnings
-    );
+        `${input.channelId} ${analyticsValue}`,
+        input.warnings
+      ),
+      fetchOptionalReports(
+        () =>
+          fetchDailyReportsWithFallback({
+            accessToken: input.accessToken,
+            config: input.config,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            metricSets: CONTENT_TYPE_AVERAGE_VIEW_METRIC_SETS,
+            filters: getChannelAnalyticsFilter(
+              input.config,
+              input.channelId,
+              `creatorContentType==${analyticsValue}`
+            ),
+            sort: ["day"]
+          }),
+        `${input.channelId} ${analyticsValue} average view percentage`,
+        input.warnings
+      )
+    ]);
 
-    return reports.flatMap((report) =>
+    return [...reports, ...averageViewReports].flatMap((report) =>
       rowsFromReport(["day"], report, { channelId: input.channelId }).map((row) => ({
         ...row,
         contentType
@@ -1205,9 +1230,17 @@ async function upsertContentTypeMetrics(
     engaged_views: row.engagedViews,
     updated_at: updatedAt
   }));
+  const averageViewRows = metrics.filter((row) => row.averageViewPercentage !== undefined).map((row) => ({
+    day: row.day,
+    channel_id: row.channelId,
+    content_type: row.contentType ?? "unknown",
+    average_view_percentage: row.averageViewPercentage,
+    updated_at: updatedAt
+  }));
 
   await upsertInChunks(db, "youtube_content_type_daily_metrics", coreRows, "day,channel_id,content_type");
   await upsertInChunks(db, "youtube_content_type_daily_metrics", engagedRows, "day,channel_id,content_type");
+  await upsertInChunks(db, "youtube_content_type_daily_metrics", averageViewRows, "day,channel_id,content_type");
   await upsertInChunks(db, "youtube_content_type_daily_metrics", revenueRows, "day,channel_id,content_type");
 }
 

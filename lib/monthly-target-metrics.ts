@@ -56,6 +56,14 @@ export const MONTHLY_TARGET_METRICS = [
     targetEra: "all"
   },
   {
+    key: "longAverageViewPercentage",
+    label: "Long average percentage viewed",
+    dbColumn: "long_average_view_percentage_target",
+    decimals: 1,
+    adminOnly: false,
+    targetEra: "all"
+  },
+  {
     key: "netSubscribers",
     label: "Net subscribers",
     dbColumn: "net_subscribers_target",
@@ -87,6 +95,10 @@ export const MONTHLY_TARGET_BASELINE_PRESETS = [
   {
     value: "highest-in-year",
     label: "Highest in last year"
+  },
+  {
+    value: "custom",
+    label: "Custom date range"
   }
 ] as const;
 
@@ -98,6 +110,10 @@ export type MonthlyTargetMetricDefinition = (typeof MONTHLY_TARGET_METRICS)[numb
 export type MonthlyTargetBaselinePreset = (typeof MONTHLY_TARGET_BASELINE_PRESETS)[number]["value"];
 export type MonthlyTargetBaselineMonthSource = `${number}-${number}`;
 export type MonthlyTargetBaselineSource = MonthlyTargetBaselinePreset | MonthlyTargetBaselineMonthSource;
+export type MonthlyTargetCustomBaselineRange = {
+  endDate: string;
+  startDate: string;
+};
 
 export type MonthlyTargetValues = Record<MonthlyTargetMetric, number | null>;
 export type MonthlyActualValues = Record<MonthlyTargetMetric, number>;
@@ -128,6 +144,7 @@ export function createEmptyTargetValues(): MonthlyTargetValues {
     shortVideosToPublish: null,
     longVideosToPublish: null,
     watchHours: null,
+    longAverageViewPercentage: null,
     netSubscribers: null,
     estimatedRevenue: null
   };
@@ -142,6 +159,7 @@ export function createEmptyActualValues(): MonthlyActualValues {
     shortVideosToPublish: 0,
     longVideosToPublish: 0,
     watchHours: 0,
+    longAverageViewPercentage: 0,
     netSubscribers: 0,
     estimatedRevenue: 0
   };
@@ -244,6 +262,66 @@ export function calculatePercentTarget(metric: MonthlyTargetMetric, baseline: nu
   return roundTargetValue(metric, baseline * (1 + percent / 100));
 }
 
+export function calculateWeightedAverageViewPercentage(
+  rows: Array<{ averageViewPercentage: number; engagedViews: number }>
+) {
+  const totals = rows.reduce(
+    (result, row) => ({
+      engagedViews: result.engagedViews + row.engagedViews,
+      weightedPercentage: result.weightedPercentage + row.averageViewPercentage * row.engagedViews
+    }),
+    { engagedViews: 0, weightedPercentage: 0 }
+  );
+  return totals.engagedViews > 0 ? Math.round((totals.weightedPercentage / totals.engagedViews) * 10) / 10 : 0;
+}
+
+export function calculateCustomMonthlyBaseline(
+  metric: MonthlyTargetMetric,
+  rangeTotal: number,
+  selectedDayCount: number,
+  targetMonth: string
+) {
+  if (isAverageMonthlyTargetMetric(metric)) return roundTargetValue(metric, rangeTotal);
+  if (!Number.isFinite(selectedDayCount) || selectedDayCount <= 0) return 0;
+  return roundTargetValue(metric, (rangeTotal / selectedDayCount) * getDaysInMonth(targetMonth));
+}
+
+export function getInclusiveDateCount(startDate: string, endDate: string) {
+  const start = parseDateKey(startDate);
+  const end = parseDateKey(endDate);
+  if (!start || !end || start > end) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+export function getCustomBaselineMaximumEndDate(targetMonth: string, now = new Date()) {
+  const targetMonthStart = parseDateKey(`${targetMonth}-01`);
+  if (!targetMonthStart) return "";
+
+  const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  const dayBeforeTargetMonth = new Date(targetMonthStart);
+  dayBeforeTargetMonth.setUTCDate(dayBeforeTargetMonth.getUTCDate() - 1);
+  return formatDateKey(yesterday < dayBeforeTargetMonth ? yesterday : dayBeforeTargetMonth);
+}
+
+export function validateMonthlyTargetCustomBaselineRange(
+  range: Partial<MonthlyTargetCustomBaselineRange>,
+  targetMonth: string,
+  now = new Date()
+) {
+  if (!range.startDate || !range.endDate) return "Select both custom baseline dates.";
+  if (!parseDateKey(range.startDate) || !parseDateKey(range.endDate)) {
+    return "Custom baseline dates must use YYYY-MM-DD format.";
+  }
+  if (range.startDate > range.endDate) return "Custom baseline start date must be on or before the end date.";
+
+  const maximumEndDate = getCustomBaselineMaximumEndDate(targetMonth, now);
+  if (!maximumEndDate || range.endDate > maximumEndDate) {
+    return `Custom baseline end date must be on or before ${maximumEndDate || "the target month"}.`;
+  }
+
+  return null;
+}
+
 export function calculateTargetIncreasePercent(baseline: number, target: number | null) {
   if (target === null) return null;
   if (baseline === 0) return target === 0 ? 0 : null;
@@ -256,7 +334,8 @@ export function normalizeTargetValue(metric: MonthlyTargetMetric, value: unknown
     return null;
   }
 
-  const parsed = typeof value === "number" ? value : Number(value);
+  const parsed =
+    typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new Error(
       `${getMetricLabel(metric)} target: only positive numeric values are allowed. Commas are not allowed.`
@@ -312,6 +391,12 @@ export function aggregateTargetProgressRows(rows: MonthlyTargetProgressInput[]) 
       aggregate.actual[metric.key] += row.actual[metric.key];
     }
 
+    if (hasTarget && isAverageMonthlyTargetMetric(metric.key)) {
+      const targetCount = rows.filter((row) => row.target[metric.key] !== null).length;
+      aggregate.target[metric.key] = roundTargetValue(metric.key, (aggregate.target[metric.key] ?? 0) / targetCount);
+      aggregate.actual[metric.key] = roundTargetValue(metric.key, aggregate.actual[metric.key] / targetCount);
+    }
+
     if (!hasTarget) {
       aggregate.target[metric.key] = null;
       aggregate.actual[metric.key] = 0;
@@ -330,6 +415,10 @@ export function hasAnyTargetValue(target: MonthlyTargetValues) {
 
 export function getMetricLabel(metric: MonthlyTargetMetric) {
   return METRIC_DEFINITIONS_BY_KEY.get(metric)?.label ?? metric;
+}
+
+export function isAverageMonthlyTargetMetric(metric: MonthlyTargetMetric) {
+  return metric === "longAverageViewPercentage";
 }
 
 function calculateProgressPercent(actual: number, target: number | null) {
@@ -353,6 +442,21 @@ function getCurrentMonth(now: Date) {
 
 function formatMonth(date: Date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function getDaysInMonth(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+}
+
+function parseDateKey(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || formatDateKey(date) !== value ? null : date;
+}
+
+function formatDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
 function getPreviousMonth(month: string) {

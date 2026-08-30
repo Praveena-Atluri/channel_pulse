@@ -43,6 +43,11 @@ async function ensureCompatibilityColumns() {
       sql: `alter table ${table} add column engaged_views integer`
     })),
     {
+      table: "youtube_content_type_daily_metrics",
+      name: "average_view_percentage",
+      sql: "alter table youtube_content_type_daily_metrics add column average_view_percentage real"
+    },
+    {
       table: "youtube_channel_daily_metrics",
       name: "impressions_click_through_rate",
       sql: "alter table youtube_channel_daily_metrics add column impressions_click_through_rate real"
@@ -76,6 +81,11 @@ async function ensureCompatibilityColumns() {
       table: "youtube_monthly_channel_targets",
       name: "estimated_revenue_target",
       sql: "alter table youtube_monthly_channel_targets add column estimated_revenue_target real check (estimated_revenue_target is null or estimated_revenue_target >= 0)"
+    },
+    {
+      table: "youtube_monthly_channel_targets",
+      name: "long_average_view_percentage_target",
+      sql: "alter table youtube_monthly_channel_targets add column long_average_view_percentage_target real check (long_average_view_percentage_target is null or long_average_view_percentage_target >= 0)"
     },
     {
       table: "youtube_daily_channel_targets",

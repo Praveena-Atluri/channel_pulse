@@ -4,16 +4,20 @@ import {
   MONTHLY_TARGET_METRICS,
   aggregateTargetProgressRows,
   buildTargetProgress,
+  calculateWeightedAverageViewPercentage,
+  calculateCustomMonthlyBaseline,
   createEmptyActualValues,
   createEmptyTargetValues,
   getTargetBaselineCutoffMonth,
   getTargetBaselineMonth,
   getTargetBaselineMonthOptionsFromAnchor,
+  getInclusiveDateCount,
   isMonthlyTargetBaselineMonthSource,
   normalizeMonthlyTargetBaselineSource,
   normalizeTargetValue,
   roundTargetValue,
   type MonthlyActualValues,
+  type MonthlyTargetCustomBaselineRange,
   type MonthlyTargetBaselineSource,
   type MonthlyTargetMetric,
   type MonthlyTargetValues
@@ -38,6 +42,8 @@ export type MonthlyTargetDashboardRow = {
   hasBaselineData: boolean;
   engagedViewsAvailable: boolean;
   engagedBaselineAvailable: boolean;
+  longAverageViewPercentageAvailable: boolean;
+  longAverageViewPercentageBaselineAvailable: boolean;
   requiresLegacyViewTargetRecalculation: boolean;
   progress: ReturnType<typeof buildTargetProgress>;
   target: MonthlyTargetValues;
@@ -56,6 +62,8 @@ export type MonthlyTargetDashboardData = {
   baselineMonth: string;
   baselineMonths: string[];
   baselineSource: MonthlyTargetBaselineSource;
+  customBaselineEndDate?: string;
+  customBaselineStartDate?: string;
   errorMessage?: string;
   month: string;
   rows: MonthlyTargetDashboardRow[];
@@ -77,6 +85,7 @@ type TargetDbRow = {
   long_views_target: number | string | null;
   short_engaged_views_target: number | string | null;
   long_engaged_views_target: number | string | null;
+  long_average_view_percentage_target: number | string | null;
   short_videos_target: number | string | null;
   long_videos_target: number | string | null;
   watch_hours_target: number | string | null;
@@ -91,8 +100,8 @@ type TargetDbRow = {
 type ChannelMetricRow = {
   channel_id: string;
   day: string;
-  estimated_minutes_watched: number | string | null;
   engaged_views: number | string | null;
+  estimated_minutes_watched: number | string | null;
   estimated_revenue?: number | string | null;
   subscribers_gained: number | string | null;
   subscribers_lost: number | string | null;
@@ -104,6 +113,7 @@ type ContentTypeMetricRow = {
   day: string;
   views: number | string | null;
   engaged_views: number | string | null;
+  average_view_percentage: number | string | null;
 };
 
 type PublishedVideoRow = {
@@ -118,6 +128,7 @@ type LatestMetricDayRow = {
 
 type ActualBucket = {
   engagedViewsAvailable: boolean;
+  longAverageViewPercentageAvailable: boolean;
   hasData: boolean;
   sourceMonths: MonthlyTargetBaselineSourceMonths;
   values: MonthlyActualValues;
@@ -135,6 +146,7 @@ const TARGET_SELECT_COLUMNS = [
   "long_views_target",
   "short_engaged_views_target",
   "long_engaged_views_target",
+  "long_average_view_percentage_target",
   "short_videos_target",
   "long_videos_target",
   "watch_hours_target",
@@ -153,6 +165,7 @@ export async function getMonthlyTargetDashboardData({
   baselineSource = DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE,
   canViewRevenue = false,
   channels,
+  customBaselineRange,
   month
 }: {
   baselineMonth: string;
@@ -160,6 +173,7 @@ export async function getMonthlyTargetDashboardData({
   baselineSource?: MonthlyTargetBaselineSource;
   canViewRevenue?: boolean;
   channels: TargetChannel[];
+  customBaselineRange?: MonthlyTargetCustomBaselineRange;
   month: string;
 }): Promise<MonthlyTargetDashboardData> {
   const normalizedBaselineSource = normalizeMonthlyTargetBaselineSource(baselineSource, baselineMonths);
@@ -169,6 +183,7 @@ export async function getMonthlyTargetDashboardData({
     baselineSource: normalizedBaselineSource,
     canViewRevenue,
     channels,
+    customBaselineRange,
     month
   });
   const visibleRows = canViewRevenue ? rows : rows.map(sanitizeRevenueTargetRow);
@@ -177,6 +192,12 @@ export async function getMonthlyTargetDashboardData({
     baselineMonth: getSelectedBaselineMonth(normalizedBaselineSource, baselineMonth),
     baselineMonths,
     baselineSource: normalizedBaselineSource,
+    ...(normalizedBaselineSource === "custom" && customBaselineRange
+      ? {
+          customBaselineEndDate: customBaselineRange.endDate,
+          customBaselineStartDate: customBaselineRange.startDate
+        }
+      : {}),
     month,
     rows: visibleRows,
     schemaReady: true,
@@ -190,6 +211,7 @@ export async function getMonthlyTargetDashboardDataSafe(input: {
   baselineSource?: MonthlyTargetBaselineSource;
   canViewRevenue?: boolean;
   channels: TargetChannel[];
+  customBaselineRange?: MonthlyTargetCustomBaselineRange;
   month: string;
 }): Promise<MonthlyTargetDashboardData> {
   try {
@@ -203,6 +225,12 @@ export async function getMonthlyTargetDashboardDataSafe(input: {
         baselineMonth: getSelectedBaselineMonth(baselineSource, input.baselineMonth),
         baselineMonths,
         baselineSource,
+        ...(baselineSource === "custom" && input.customBaselineRange
+          ? {
+              customBaselineEndDate: input.customBaselineRange.endDate,
+              customBaselineStartDate: input.customBaselineRange.startDate
+            }
+          : {}),
         errorMessage: "Apply the monthly targets schema before using target tracking.",
         month: input.month,
         rows: [],
@@ -277,6 +305,7 @@ export async function saveMonthlyTargets({
         month >= ENGAGED_TARGET_START_MONTH
           ? normalizedTargets.longEngagedViews
           : existingRow?.long_engaged_views_target ?? null,
+      long_average_view_percentage_target: normalizedTargets.longAverageViewPercentage,
       short_videos_target: normalizedTargets.shortVideosToPublish,
       long_videos_target: normalizedTargets.longVideosToPublish,
       watch_hours_target: normalizedTargets.watchHours,
@@ -317,6 +346,7 @@ function mapTargetDbRow(row: TargetDbRow | undefined): MonthlyTargetValues {
     longViews: toNullableNumber(row.long_views_target),
     shortEngagedViews: toNullableNumber(row.short_engaged_views_target),
     longEngagedViews: toNullableNumber(row.long_engaged_views_target),
+    longAverageViewPercentage: toNullableNumber(row.long_average_view_percentage_target),
     shortVideosToPublish: toNullableNumber(row.short_videos_target),
     longVideosToPublish: toNullableNumber(row.long_videos_target),
     watchHours: toNullableNumber(row.watch_hours_target),
@@ -331,6 +361,7 @@ async function getMonthlyTargetRows({
   baselineSource,
   canViewRevenue,
   channels,
+  customBaselineRange,
   month
 }: {
   baselineMonth: string;
@@ -338,6 +369,7 @@ async function getMonthlyTargetRows({
   baselineSource: MonthlyTargetBaselineSource;
   canViewRevenue: boolean;
   channels: TargetChannel[];
+  customBaselineRange?: MonthlyTargetCustomBaselineRange;
   month: string;
 }) {
   const db = createDatabaseAdminClient();
@@ -351,7 +383,14 @@ async function getMonthlyTargetRows({
     getTargetDbRows(db, month, channelIds, { includeRevenue: canViewRevenue }),
     getDailyPublishingTargetsByChannelId(channelIds),
     getActualBuckets(db, month, channelIds),
-    getBaselineBuckets(db, { baselineMonth, baselineMonths, baselineSource, channelIds, targetMonth: month }),
+    getBaselineBuckets(db, {
+      baselineMonth,
+      baselineMonths,
+      baselineSource,
+      channelIds,
+      customBaselineRange,
+      targetMonth: month
+    }),
     getWeeklyActualBuckets(db, month, channelIds)
   ]);
   const targetRowsByChannelId = new Map(targetRows.map((row) => [row.channel_id, row]));
@@ -375,6 +414,8 @@ async function getMonthlyTargetRows({
       hasBaselineData: baselineBucket.hasData,
       engagedViewsAvailable: actualBucket.engagedViewsAvailable,
       engagedBaselineAvailable: baselineBucket.engagedViewsAvailable,
+      longAverageViewPercentageAvailable: actualBucket.longAverageViewPercentageAvailable,
+      longAverageViewPercentageBaselineAvailable: baselineBucket.longAverageViewPercentageAvailable,
       requiresLegacyViewTargetRecalculation:
         month >= ENGAGED_TARGET_START_MONTH &&
         (toNullableNumber(targetRowsByChannelId.get(channel.channelId)?.short_views_target) !== null ||
@@ -417,12 +458,14 @@ async function getBaselineBuckets(
     baselineMonths,
     baselineSource,
     channelIds,
+    customBaselineRange,
     targetMonth
   }: {
     baselineMonth: string;
     baselineMonths: string[];
     baselineSource: MonthlyTargetBaselineSource;
     channelIds: string[];
+    customBaselineRange?: MonthlyTargetCustomBaselineRange;
     targetMonth: string;
   }
 ) {
@@ -434,8 +477,39 @@ async function getBaselineBuckets(
     return getHighestActualBuckets(db, baselineMonths, channelIds, targetMonth);
   }
 
+  if (baselineSource === "custom") {
+    if (!customBaselineRange) throw new Error("Select both custom baseline dates.");
+    return getCustomBaselineBuckets(db, customBaselineRange, channelIds, targetMonth);
+  }
+
   const selectedMonth = isMonthlyTargetBaselineMonthSource(baselineSource) ? baselineSource : baselineMonth;
   return getActualBuckets(db, selectedMonth, channelIds);
+}
+
+async function getCustomBaselineBuckets(
+  db: ReturnType<typeof createDatabaseAdminClient>,
+  range: MonthlyTargetCustomBaselineRange,
+  channelIds: string[],
+  targetMonth: string
+) {
+  const selectedDayCount = getInclusiveDateCount(range.startDate, range.endDate);
+  const exclusiveEndDate = formatUtcDate(addUtcDays(parseUtcDate(range.endDate), 1));
+  const sourceLabel = `${range.startDate}/${range.endDate}`;
+  const buckets = await getActualBucketsForRange(db, range.startDate, exclusiveEndDate, sourceLabel, channelIds);
+
+  for (const bucket of buckets.values()) {
+    if (!bucket.hasData) continue;
+    for (const metric of MONTHLY_TARGET_METRICS) {
+      bucket.values[metric.key] = calculateCustomMonthlyBaseline(
+        metric.key,
+        bucket.values[metric.key],
+        selectedDayCount,
+        targetMonth
+      );
+    }
+  }
+
+  return buckets;
 }
 
 async function getAverageActualBuckets(
@@ -445,7 +519,6 @@ async function getAverageActualBuckets(
 ) {
   const monthlyBuckets = await Promise.all(months.map((month) => getActualBuckets(db, month, channelIds)));
   const buckets = new Map(channelIds.map((channelId) => [channelId, createActualBucket()]));
-
   for (const channelId of channelIds) {
     const averageBucket = buckets.get(channelId);
     if (!averageBucket) continue;
@@ -473,6 +546,8 @@ async function getAverageActualBuckets(
     averageBucket.engagedViewsAvailable =
       metricMonthCounts.shortEngagedViews === months.length &&
       metricMonthCounts.longEngagedViews === months.length;
+    averageBucket.longAverageViewPercentageAvailable =
+      metricMonthCounts.longAverageViewPercentage === months.length;
     for (const metric of MONTHLY_TARGET_METRICS) {
       const count = metricMonthCounts[metric.key];
       averageBucket.values[metric.key] = count > 0 ? roundTargetValue(metric.key, totals[metric.key] / count) : 0;
@@ -521,6 +596,7 @@ async function getHighestActualBuckets(
 
     highestBucket.hasData = selectedBucket.hasData;
     highestBucket.engagedViewsAvailable = selectedBucket.engagedViewsAvailable;
+    highestBucket.longAverageViewPercentageAvailable = selectedBucket.longAverageViewPercentageAvailable;
     for (const metric of MONTHLY_TARGET_METRICS) {
       highestBucket.values[metric.key] = selectedBucket.values[metric.key];
       highestBucket.sourceMonths[metric.key] = selectedMonth;
@@ -581,11 +657,25 @@ async function getActualBuckets(
   channelIds: string[]
 ) {
   const range = getMonthDateRange(month);
+  return getActualBucketsForRange(db, range.startDate, range.endDate, month, channelIds);
+}
+
+async function getActualBucketsForRange(
+  db: ReturnType<typeof createDatabaseAdminClient>,
+  startDate: string,
+  endDate: string,
+  sourceLabel: string,
+  channelIds: string[]
+) {
   const buckets = new Map(channelIds.map((channelId) => [channelId, createActualBucket()]));
+  const longAverageRowsByChannelId = new Map<
+    string,
+    Array<{ averageViewPercentage: number; engagedViews: number }>
+  >();
   const [channelMetricRows, contentTypeMetricRows, publishedVideoRows] = await Promise.all([
-    getChannelMetricRows(db, range.startDate, range.endDate, channelIds),
-    getContentTypeMetricRows(db, range.startDate, range.endDate, channelIds),
-    getPublishedVideoRows(db, range.startDate, range.endDate, channelIds)
+    getChannelMetricRows(db, startDate, endDate, channelIds),
+    getContentTypeMetricRows(db, startDate, endDate, channelIds),
+    getPublishedVideoRows(db, startDate, endDate, channelIds)
   ]);
 
   for (const row of channelMetricRows) {
@@ -597,9 +687,9 @@ async function getActualBuckets(
     bucket.values.netSubscribers += toNumber(row.subscribers_gained) - toNumber(row.subscribers_lost);
     bucket.values.estimatedRevenue += toNumber(row.estimated_revenue);
     bucket.engagedViewsAvailable ||= row.engaged_views !== null && row.engaged_views !== undefined;
-    bucket.sourceMonths.watchHours = month;
-    bucket.sourceMonths.netSubscribers = month;
-    bucket.sourceMonths.estimatedRevenue = month;
+    bucket.sourceMonths.watchHours = sourceLabel;
+    bucket.sourceMonths.netSubscribers = sourceLabel;
+    bucket.sourceMonths.estimatedRevenue = sourceLabel;
   }
 
   for (const row of contentTypeMetricRows) {
@@ -610,12 +700,28 @@ async function getActualBuckets(
 
     bucket.hasData = true;
     bucket.values[metricKey] += toNumber(row.views);
-    bucket.sourceMonths[metricKey] = month;
+    bucket.sourceMonths[metricKey] = sourceLabel;
     const engagedMetricKey = engagedContentTypeMetricKey(row.content_type);
     if (engagedMetricKey && row.engaged_views !== null && row.engaged_views !== undefined) {
       bucket.engagedViewsAvailable = true;
       bucket.values[engagedMetricKey] += toNumber(row.engaged_views);
-      bucket.sourceMonths[engagedMetricKey] = month;
+      bucket.sourceMonths[engagedMetricKey] = sourceLabel;
+    }
+    if (
+      row.content_type === "long" &&
+      row.engaged_views !== null &&
+      row.engaged_views !== undefined &&
+      row.average_view_percentage !== null &&
+      row.average_view_percentage !== undefined
+    ) {
+      const averageRows = longAverageRowsByChannelId.get(row.channel_id) ?? [];
+      averageRows.push({
+        averageViewPercentage: toNumber(row.average_view_percentage),
+        engagedViews: toNumber(row.engaged_views)
+      });
+      longAverageRowsByChannelId.set(row.channel_id, averageRows);
+      bucket.longAverageViewPercentageAvailable = true;
+      bucket.sourceMonths.longAverageViewPercentage = sourceLabel;
     }
   }
 
@@ -626,20 +732,23 @@ async function getActualBuckets(
     if (row.content_type === "short") {
       bucket.hasData = true;
       bucket.values.shortVideosToPublish += 1;
-      bucket.sourceMonths.shortVideosToPublish = month;
+      bucket.sourceMonths.shortVideosToPublish = sourceLabel;
     } else if (row.content_type === "long") {
       bucket.hasData = true;
       bucket.values.longVideosToPublish += 1;
-      bucket.sourceMonths.longVideosToPublish = month;
+      bucket.sourceMonths.longVideosToPublish = sourceLabel;
     }
   }
 
-  for (const bucket of buckets.values()) {
+  for (const [channelId, bucket] of buckets) {
     if (bucket.engagedViewsAvailable) {
-      bucket.sourceMonths.shortEngagedViews ??= month;
-      bucket.sourceMonths.longEngagedViews ??= month;
+      bucket.sourceMonths.shortEngagedViews ??= sourceLabel;
+      bucket.sourceMonths.longEngagedViews ??= sourceLabel;
     }
     bucket.values.watchHours = Math.round(bucket.values.watchHours * 10) / 10;
+    bucket.values.longAverageViewPercentage = calculateWeightedAverageViewPercentage(
+      longAverageRowsByChannelId.get(channelId) ?? []
+    );
     bucket.values.estimatedRevenue = Math.round(bucket.values.estimatedRevenue * 100) / 100;
   }
 
@@ -654,6 +763,10 @@ async function getWeeklyActualBuckets(
   const range = getMonthDateRange(month);
   const weekDefinitions = getMonthWeekDefinitions(month);
   const buckets = new Map(channelIds.map((channelId) => [channelId, createWeeklyActualRows(weekDefinitions)]));
+  const longAverageRowsByWeek = new Map<
+    string,
+    Array<{ averageViewPercentage: number; engagedViews: number }>
+  >();
   const [channelMetricRows, contentTypeMetricRows, publishedVideoRows] = await Promise.all([
     getChannelMetricRows(db, range.startDate, range.endDate, channelIds),
     getContentTypeMetricRows(db, range.startDate, range.endDate, channelIds),
@@ -681,6 +794,21 @@ async function getWeeklyActualBuckets(
     if (engagedMetricKey && row.engaged_views !== null && row.engaged_views !== undefined) {
       week.actual[engagedMetricKey] += toNumber(row.engaged_views);
     }
+    if (
+      row.content_type === "long" &&
+      row.engaged_views !== null &&
+      row.engaged_views !== undefined &&
+      row.average_view_percentage !== null &&
+      row.average_view_percentage !== undefined
+    ) {
+      const key = `${row.channel_id}|${week.startDate}`;
+      const averageRows = longAverageRowsByWeek.get(key) ?? [];
+      averageRows.push({
+        averageViewPercentage: toNumber(row.average_view_percentage),
+        engagedViews: toNumber(row.engaged_views)
+      });
+      longAverageRowsByWeek.set(key, averageRows);
+    }
   }
 
   for (const row of publishedVideoRows) {
@@ -697,9 +825,12 @@ async function getWeeklyActualBuckets(
     }
   }
 
-  for (const rows of buckets.values()) {
+  for (const [channelId, rows] of buckets) {
     for (const row of rows) {
       row.actual.watchHours = Math.round(row.actual.watchHours * 10) / 10;
+      row.actual.longAverageViewPercentage = calculateWeightedAverageViewPercentage(
+        longAverageRowsByWeek.get(`${channelId}|${row.startDate}`) ?? []
+      );
       row.actual.estimatedRevenue = Math.round(row.actual.estimatedRevenue * 100) / 100;
     }
   }
@@ -733,7 +864,7 @@ async function getContentTypeMetricRows(
 ) {
   const { data, error } = await db
     .from("youtube_content_type_daily_metrics")
-    .select("channel_id,content_type,day,views,engaged_views")
+    .select("channel_id,content_type,day,views,engaged_views,average_view_percentage")
     .in("channel_id", channelIds)
     .gte("day", startDate)
     .lt("day", endDate);
@@ -784,6 +915,7 @@ async function getLatestMetricDay(
 function createActualBucket(): ActualBucket {
   return {
     engagedViewsAvailable: false,
+    longAverageViewPercentageAvailable: false,
     hasData: false,
     sourceMonths: createEmptyBaselineSourceMonths(),
     values: createEmptyActualValues()
@@ -898,7 +1030,10 @@ function isMissingTargetTableError(error: unknown) {
     message.includes("youtube_monthly_channel_targets") &&
     (message.includes("does not exist") || message.includes("no such table"))
   ) || (
-    (message.includes("estimated_revenue_target") || message.includes("engaged_views")) &&
+    (message.includes("estimated_revenue_target") ||
+      message.includes("long_average_view_percentage_target") ||
+      message.includes("average_view_percentage") ||
+      message.includes("engaged_views")) &&
     (message.includes("does not exist") || message.includes("no such column") || message.includes("no such field"))
   );
 }
