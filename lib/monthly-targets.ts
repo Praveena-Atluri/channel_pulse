@@ -71,6 +71,11 @@ export type MonthlyTargetDashboardData = {
   totals: ReturnType<typeof aggregateTargetProgressRows>;
 };
 
+export type MonthlyTargetAchievementRange = {
+  endDate: string;
+  startDate: string;
+};
+
 export type SaveMonthlyTargetInputRow = {
   channelId: string;
   targets: Partial<Record<MonthlyTargetMetric, unknown>>;
@@ -160,6 +165,7 @@ const TARGET_SELECT_COLUMNS = [
 const REVENUE_TARGET_SELECT_COLUMN = "estimated_revenue_target";
 
 export async function getMonthlyTargetDashboardData({
+  achievementRange,
   baselineMonth,
   baselineMonths = getTargetBaselineMonthOptionsFromAnchor(baselineMonth),
   baselineSource = DEFAULT_MONTHLY_TARGET_BASELINE_SOURCE,
@@ -168,6 +174,7 @@ export async function getMonthlyTargetDashboardData({
   customBaselineRange,
   month
 }: {
+  achievementRange?: MonthlyTargetAchievementRange;
   baselineMonth: string;
   baselineMonths?: string[];
   baselineSource?: MonthlyTargetBaselineSource;
@@ -178,6 +185,7 @@ export async function getMonthlyTargetDashboardData({
 }): Promise<MonthlyTargetDashboardData> {
   const normalizedBaselineSource = normalizeMonthlyTargetBaselineSource(baselineSource, baselineMonths);
   const rows = await getMonthlyTargetRows({
+    achievementRange,
     baselineMonth,
     baselineMonths,
     baselineSource: normalizedBaselineSource,
@@ -206,6 +214,7 @@ export async function getMonthlyTargetDashboardData({
 }
 
 export async function getMonthlyTargetDashboardDataSafe(input: {
+  achievementRange?: MonthlyTargetAchievementRange;
   baselineMonth: string;
   baselineMonths?: string[];
   baselineSource?: MonthlyTargetBaselineSource;
@@ -356,6 +365,7 @@ function mapTargetDbRow(row: TargetDbRow | undefined): MonthlyTargetValues {
 }
 
 async function getMonthlyTargetRows({
+  achievementRange,
   baselineMonth,
   baselineMonths,
   baselineSource,
@@ -364,6 +374,7 @@ async function getMonthlyTargetRows({
   customBaselineRange,
   month
 }: {
+  achievementRange?: MonthlyTargetAchievementRange;
   baselineMonth: string;
   baselineMonths: string[];
   baselineSource: MonthlyTargetBaselineSource;
@@ -382,7 +393,15 @@ async function getMonthlyTargetRows({
   const [targetRows, dailyPublishingTargetsByChannelId, actualBuckets, baselineBuckets, weeklyActualBuckets] = await Promise.all([
     getTargetDbRows(db, month, channelIds, { includeRevenue: canViewRevenue }),
     getDailyPublishingTargetsByChannelId(channelIds),
-    getActualBuckets(db, month, channelIds),
+    achievementRange
+      ? getActualBucketsForRange(
+          db,
+          achievementRange.startDate,
+          formatUtcDate(addUtcDays(parseUtcDate(achievementRange.endDate), 1)),
+          `${achievementRange.startDate}/${achievementRange.endDate}`,
+          channelIds
+        )
+      : getActualBuckets(db, month, channelIds),
     getBaselineBuckets(db, {
       baselineMonth,
       baselineMonths,

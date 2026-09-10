@@ -259,7 +259,7 @@ export function isMonthlyTargetBaselineMonthSource(value: string): value is Mont
 }
 
 export function calculatePercentTarget(metric: MonthlyTargetMetric, baseline: number, percent: number) {
-  return roundTargetValue(metric, baseline * (1 + percent / 100));
+  return roundTargetValue(metric, Math.abs(baseline) * (1 + percent / 100));
 }
 
 export function calculateWeightedAverageViewPercentage(

@@ -158,6 +158,26 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
     return NextResponse.json({ error: "Select a valid target month." }, { status: 400 });
   }
 
+  const requestedStartDate = request.nextUrl.searchParams.get("startDate");
+  const requestedEndDate = request.nextUrl.searchParams.get("endDate");
+  const hasCustomAchievementRange = requestedStartDate !== null || requestedEndDate !== null;
+  const achievementStartDate = hasCustomAchievementRange ? normalizeDateParam(requestedStartDate) : null;
+  const achievementEndDate = hasCustomAchievementRange ? normalizeDateParam(requestedEndDate) : null;
+  if (hasCustomAchievementRange && (!achievementStartDate || !achievementEndDate)) {
+    return NextResponse.json({ error: "Select a valid achievement start and end date." }, { status: 400 });
+  }
+  if (achievementStartDate && achievementEndDate) {
+    if (achievementStartDate > achievementEndDate) {
+      return NextResponse.json({ error: "Achievement end date must be after start date." }, { status: 400 });
+    }
+    if (achievementStartDate.slice(0, 7) !== month || achievementEndDate.slice(0, 7) !== month) {
+      return NextResponse.json(
+        { error: "Achievement dates must both be within the selected target month." },
+        { status: 400 }
+      );
+    }
+  }
+
   const requestedChannelIds = uniqueValues(request.nextUrl.searchParams.getAll("channel"));
   if (requestedChannelIds.length === 0) {
     return NextResponse.json({ error: "Select at least one channel." }, { status: 400 });
@@ -174,6 +194,9 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
 
   const canViewRevenue = canAccountViewRevenue(account);
   const dashboard = await getMonthlyTargetDashboardDataSafe({
+    ...(achievementStartDate && achievementEndDate
+      ? { achievementRange: { startDate: achievementStartDate, endDate: achievementEndDate } }
+      : {}),
     baselineMonth: getTargetBaselineMonth(month),
     baselineSource: getDefaultMonthlyTargetBaselineSource(month),
     canViewRevenue,
@@ -192,7 +215,9 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
   );
   const rows: XlsxCellValue[][] = [
     [
-      "Channel",
+      achievementStartDate && achievementEndDate
+        ? `Channel (achievement: ${achievementStartDate} to ${achievementEndDate})`
+        : `Channel (achievement: entire ${month})`,
       ...metrics.flatMap((metric) => [
         `${metric.label} target`,
         `${metric.label} achievement`,
@@ -210,7 +235,14 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
 
   return buildWorkbookResponse(
     rows,
-    ["channel-pulse", "target-vs-achievement", month, `${selectedChannels.length}-channels`].join("-"),
+    [
+      "channel-pulse",
+      "target-vs-achievement",
+      achievementStartDate && achievementEndDate
+        ? `${achievementStartDate}-to-${achievementEndDate}`
+        : month,
+      `${selectedChannels.length}-channels`
+    ].join("-"),
     "Target vs Achievement"
   );
 }

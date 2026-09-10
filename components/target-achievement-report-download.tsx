@@ -19,6 +19,9 @@ export function TargetAchievementReportDownload({
   schemaReady
 }: TargetAchievementReportDownloadProps) {
   const [month, setMonth] = useState(defaultMonth);
+  const [periodMode, setPeriodMode] = useState<"month" | "custom">("month");
+  const [startDate, setStartDate] = useState(() => getMonthBounds(defaultMonth).startDate);
+  const [endDate, setEndDate] = useState(() => getMonthBounds(defaultMonth).endDate);
   const [channelSearch, setChannelSearch] = useState("");
   const [selectedChannelIds, setSelectedChannelIds] = useState(() =>
     channels.map((channel) => channel.channelId)
@@ -35,9 +38,21 @@ export function TargetAchievementReportDownload({
   }, [channelSearch, channels]);
   const downloadHref = useMemo(() => {
     const query = new URLSearchParams({ report: "target-achievement", month });
+    if (periodMode === "custom") {
+      query.set("startDate", startDate);
+      query.set("endDate", endDate);
+    }
     for (const channelId of selectedChannelIds) query.append("channel", channelId);
     return `/api/reports/monthly?${query.toString()}`;
-  }, [month, selectedChannelIds]);
+  }, [endDate, month, periodMode, selectedChannelIds, startDate]);
+  const monthBounds = getMonthBounds(month);
+  const isInvalidDateRange =
+    periodMode === "custom" &&
+    (!startDate ||
+      !endDate ||
+      startDate > endDate ||
+      startDate.slice(0, 7) !== month ||
+      endDate.slice(0, 7) !== month);
 
   return (
     <div className="grid gap-5">
@@ -46,10 +61,48 @@ export function TargetAchievementReportDownload({
         <input
           type="month"
           value={month}
-          onChange={(event) => setMonth(event.target.value)}
+          onChange={(event) => {
+            const nextMonth = event.target.value;
+            const bounds = getMonthBounds(nextMonth);
+            setMonth(nextMonth);
+            setStartDate(bounds.startDate);
+            setEndDate(bounds.endDate);
+          }}
           className="h-11 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
         />
       </label>
+
+      <div className="grid gap-3">
+        <label className="grid gap-1 text-sm font-semibold text-muted-foreground">
+          Achievement Period
+          <select
+            value={periodMode}
+            onChange={(event) => setPeriodMode(event.target.value as "month" | "custom")}
+            className="h-11 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+          >
+            <option value="month">Entire month</option>
+            <option value="custom">Custom period within month</option>
+          </select>
+        </label>
+        {periodMode === "custom" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <DateField
+              label="Start Date"
+              value={startDate}
+              min={monthBounds.startDate}
+              max={monthBounds.endDate}
+              onChange={setStartDate}
+            />
+            <DateField
+              label="End Date"
+              value={endDate}
+              min={monthBounds.startDate}
+              max={monthBounds.endDate}
+              onChange={setEndDate}
+            />
+          </div>
+        ) : null}
+      </div>
 
       <div className="rounded-md border bg-background/80 p-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -113,10 +166,18 @@ export function TargetAchievementReportDownload({
       <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid gap-1 text-sm">
           <div className="font-semibold text-foreground">Target vs Achievement · {month}</div>
+          <div className="text-muted-foreground">
+            Achievement: {periodMode === "custom" ? `${startDate || "Start date"} to ${endDate || "End date"}` : "Entire month"}
+          </div>
           <div className="text-muted-foreground">{selectedChannelIds.length} channels selected</div>
+          {isInvalidDateRange ? (
+            <div className="text-xs font-semibold text-destructive">
+              Select a valid period within {month} only.
+            </div>
+          ) : null}
         </div>
         <ReportDownloadButton
-          disabled={!schemaReady || !month || selectedChannelIds.length === 0}
+          disabled={!schemaReady || !month || isInvalidDateRange || selectedChannelIds.length === 0}
           href={downloadHref}
           idleLabel="Download Target vs Achievement Excel"
           loadingLabel="Preparing target report..."
@@ -124,4 +185,45 @@ export function TargetAchievementReportDownload({
       </div>
     </div>
   );
+}
+
+function DateField({
+  label,
+  value,
+  min,
+  max,
+  onChange
+}: {
+  label: string;
+  value: string;
+  min: string;
+  max: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-sm font-semibold text-muted-foreground">
+      {label}
+      <input
+        type="date"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+      />
+    </label>
+  );
+}
+
+function getMonthBounds(month: string) {
+  const match = month.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return { startDate: "", endDate: "" };
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return {
+    startDate: `${month}-01`,
+    endDate: `${month}-${String(lastDay).padStart(2, "0")}`
+  };
 }

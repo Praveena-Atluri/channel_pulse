@@ -102,6 +102,7 @@ test("calculates percent targets with metric-specific rounding", () => {
   assert.equal(calculatePercentTarget("watchHours", 12.34, 15), 14.2);
   assert.equal(calculatePercentTarget("longAverageViewPercentage", 40, 10), 44);
   assert.equal(calculatePercentTarget("netSubscribers", 7, 50), 11);
+  assert.equal(calculatePercentTarget("netSubscribers", -17, 5), 18);
   assert.equal(calculatePercentTarget("estimatedRevenue", 123.45, 10), 135.8);
 });
 
