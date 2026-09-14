@@ -76,6 +76,7 @@ export function ReportDownloadPicker({
           />
         ) : (
           <TargetAchievementReportDownload
+            canViewRevenue={canViewRevenue}
             channels={channels}
             defaultMonth={defaultMonth}
             schemaReady={schemaReady}

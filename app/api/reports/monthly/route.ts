@@ -27,9 +27,11 @@ import {
 import { createDatabaseAdminClient } from "@/lib/database";
 import {
   getDefaultMonthlyTargetBaselineSource,
+  getTargetAchievementColumns,
   getTargetBaselineMonth,
-  getVisibleMonthlyTargetMetrics,
-  isPublishingMonthlyTargetMetric,
+  isTargetAchievementColumnId,
+  isTargetAchievementRevenueColumnId,
+  type TargetAchievementColumn,
   type MonthlyTargetMetric
 } from "@/lib/monthly-target-metrics";
 import {
@@ -183,6 +185,36 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
     return NextResponse.json({ error: "Select at least one channel." }, { status: 400 });
   }
 
+  const requestedColumnIds = uniqueValues(request.nextUrl.searchParams.getAll("column"));
+  if (requestedColumnIds.length === 0) {
+    return NextResponse.json({ error: "Select at least one report column." }, { status: 400 });
+  }
+
+  const selectedColumnIds = requestedColumnIds.filter(isTargetAchievementColumnId);
+  if (selectedColumnIds.length !== requestedColumnIds.length) {
+    return NextResponse.json({ error: "Select valid report columns." }, { status: 400 });
+  }
+
+  const canViewRevenue = canAccountViewRevenue(account);
+  if (!canViewRevenue && selectedColumnIds.some(isTargetAchievementRevenueColumnId)) {
+    return NextResponse.json(
+      { error: "Revenue report columns are unavailable for this account." },
+      { status: 403 }
+    );
+  }
+
+  const availableColumns = getTargetAchievementColumns(canViewRevenue, month);
+  const availableColumnsById = new Map(availableColumns.map((column) => [column.id, column]));
+  const selectedColumns = selectedColumnIds
+    .map((columnId) => availableColumnsById.get(columnId))
+    .filter((column): column is TargetAchievementColumn => Boolean(column));
+  if (selectedColumns.length !== selectedColumnIds.length) {
+    return NextResponse.json(
+      { error: "One or more report columns are unavailable for the selected month." },
+      { status: 400 }
+    );
+  }
+
   const availableChannels = filterChannelsForAccount(await listStoredYoutubeManagedChannels(), account);
   const channelsById = new Map(availableChannels.map((channel) => [channel.channelId, channel]));
   const selectedChannels = requestedChannelIds
@@ -192,7 +224,6 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
     return NextResponse.json({ error: "Select valid channels." }, { status: 400 });
   }
 
-  const canViewRevenue = canAccountViewRevenue(account);
   const dashboard = await getMonthlyTargetDashboardDataSafe({
     ...(achievementStartDate && achievementEndDate
       ? { achievementRange: { startDate: achievementStartDate, endDate: achievementEndDate } }
@@ -210,27 +241,18 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
     );
   }
 
-  const metrics = getVisibleMonthlyTargetMetrics(false, month).filter(
-    (metric) => !isPublishingMonthlyTargetMetric(metric.key)
-  );
   const rows: XlsxCellValue[][] = [
-    [
-      achievementStartDate && achievementEndDate
-        ? `Channel (achievement: ${achievementStartDate} to ${achievementEndDate})`
-        : `Channel (achievement: entire ${month})`,
-      ...metrics.flatMap((metric) => [
-        `${metric.label} target`,
-        `${metric.label} achievement`,
-        "%"
-      ])
-    ]
+    selectedColumns.map((column) =>
+      column.kind === "channel"
+        ? achievementStartDate && achievementEndDate
+          ? `Channel (achievement: ${achievementStartDate} to ${achievementEndDate})`
+          : `Channel (achievement: entire ${month})`
+        : column.label
+    )
   ];
 
   for (const channel of dashboard.rows) {
-    rows.push([
-      channel.channelTitle,
-      ...metrics.flatMap((metric) => buildTargetAchievementCells(channel, metric))
-    ]);
+    rows.push(selectedColumns.map((column) => buildTargetAchievementCell(channel, column)));
   }
 
   return buildWorkbookResponse(
@@ -1140,25 +1162,33 @@ function normalizeReportType(value: string | null): ReportType | null {
   return value && REPORT_TYPES.has(value as ReportType) ? (value as ReportType) : null;
 }
 
-function buildTargetAchievementCells(
+function buildTargetAchievementCell(
   channel: MonthlyTargetDashboardRow,
-  metric: { key: MonthlyTargetMetric; label: string }
-): XlsxCellValue[] {
-  const progress = channel.progress[metric.key];
+  column: TargetAchievementColumn
+): XlsxCellValue {
+  if (column.kind === "channel" || !column.metric) return channel.channelTitle;
+
+  const progress = channel.progress[column.metric];
   const engagedMetric =
-    metric.key === "shortEngagedViews" ||
-    metric.key === "longEngagedViews" ||
-    metric.key === "longAverageViewPercentage";
+    column.metric === "shortEngagedViews" ||
+    column.metric === "longEngagedViews" ||
+    column.metric === "longAverageViewPercentage";
   const achievementUnavailable = engagedMetric && !channel.engagedViewsAvailable;
   const metricUnavailable =
     achievementUnavailable ||
-    (metric.key === "longAverageViewPercentage" && !channel.longAverageViewPercentageAvailable);
+    (column.metric === "longAverageViewPercentage" && !channel.longAverageViewPercentageAvailable);
 
-  return [
-    progress.target === null ? "Not set" : formatTargetAchievementMetric(metric.key, progress.target),
-    metricUnavailable ? "Unavailable" : formatTargetAchievementMetric(metric.key, progress.actual),
-    metricUnavailable || progress.percent === null ? "Unavailable" : progress.percent
-  ];
+  if (column.kind === "target") {
+    return progress.target === null
+      ? "Not set"
+      : formatTargetAchievementMetric(column.metric, progress.target);
+  }
+  if (column.kind === "achievement") {
+    return metricUnavailable
+      ? "Unavailable"
+      : formatTargetAchievementMetric(column.metric, progress.actual);
+  }
+  return metricUnavailable || progress.percent === null ? "Unavailable" : progress.percent;
 }
 
 function formatTargetAchievementMetric(metric: MonthlyTargetMetric, value: number) {

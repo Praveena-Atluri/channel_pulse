@@ -133,6 +133,18 @@ export type MonthlyTargetProgressInput = {
   target: MonthlyTargetValues;
 };
 
+export type TargetAchievementColumnKind = "target" | "achievement" | "percent";
+export type TargetAchievementColumnId =
+  | "channel"
+  | `${MonthlyTargetMetric}_${TargetAchievementColumnKind}`;
+
+export type TargetAchievementColumn = {
+  id: TargetAchievementColumnId;
+  label: string;
+  kind: "channel" | TargetAchievementColumnKind;
+  metric?: MonthlyTargetMetric;
+};
+
 const METRIC_DEFINITIONS_BY_KEY = new Map(MONTHLY_TARGET_METRICS.map((metric) => [metric.key, metric]));
 
 export function createEmptyTargetValues(): MonthlyTargetValues {
@@ -186,6 +198,47 @@ export function getDefaultMonthlyTargetBaselineSource(targetMonth: string): Mont
 
 export function isPublishingMonthlyTargetMetric(metric: MonthlyTargetMetric) {
   return metric === "shortVideosToPublish" || metric === "longVideosToPublish";
+}
+
+export function getTargetAchievementColumns(canViewRevenue: boolean, month: string) {
+  const metricColumns = getVisibleMonthlyTargetMetrics(canViewRevenue, month)
+    .filter((metric) => !isPublishingMonthlyTargetMetric(metric.key))
+    .flatMap<TargetAchievementColumn>((metric) => [
+      {
+        id: `${metric.key}_target`,
+        kind: "target",
+        label: `${metric.label} target`,
+        metric: metric.key
+      },
+      {
+        id: `${metric.key}_achievement`,
+        kind: "achievement",
+        label: `${metric.label} achievement`,
+        metric: metric.key
+      },
+      {
+        id: `${metric.key}_percent`,
+        kind: "percent",
+        label: `${metric.label} %`,
+        metric: metric.key
+      }
+    ]);
+
+  return [
+    { id: "channel", kind: "channel", label: "Channel" },
+    ...metricColumns
+  ] satisfies TargetAchievementColumn[];
+}
+
+export function isTargetAchievementColumnId(value: string): value is TargetAchievementColumnId {
+  if (value === "channel") return true;
+  return /^(shortViews|longViews|shortEngagedViews|longEngagedViews|shortVideosToPublish|longVideosToPublish|watchHours|longAverageViewPercentage|netSubscribers|estimatedRevenue)_(target|achievement|percent)$/.test(
+    value
+  );
+}
+
+export function isTargetAchievementRevenueColumnId(columnId: TargetAchievementColumnId) {
+  return columnId.startsWith("estimatedRevenue_");
 }
 
 export function getEditableTargetMonths(now = new Date()) {

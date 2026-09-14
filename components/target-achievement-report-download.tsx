@@ -1,19 +1,26 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { CheckSquare, Search, Square } from "lucide-react";
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 import { ReportDownloadButton } from "@/components/report-download-button";
 import { buttonVariants } from "@/components/ui/button";
+import {
+  getTargetAchievementColumns,
+  type TargetAchievementColumnId
+} from "@/lib/monthly-target-metrics";
 import type { ManagedChannel } from "@/lib/youtube-performance";
 
 type TargetAchievementReportDownloadProps = {
+  canViewRevenue: boolean;
   channels: ManagedChannel[];
   defaultMonth: string;
   schemaReady: boolean;
 };
 
 export function TargetAchievementReportDownload({
+  canViewRevenue,
   channels,
   defaultMonth,
   schemaReady
@@ -26,7 +33,15 @@ export function TargetAchievementReportDownload({
   const [selectedChannelIds, setSelectedChannelIds] = useState(() =>
     channels.map((channel) => channel.channelId)
   );
+  const availableColumns = useMemo(
+    () => getTargetAchievementColumns(canViewRevenue, month),
+    [canViewRevenue, month]
+  );
+  const [selectedColumnIds, setSelectedColumnIds] = useState<TargetAchievementColumnId[]>(() =>
+    getTargetAchievementColumns(canViewRevenue, defaultMonth).map((column) => column.id)
+  );
   const selectedChannelSet = useMemo(() => new Set(selectedChannelIds), [selectedChannelIds]);
+  const selectedColumnSet = useMemo(() => new Set(selectedColumnIds), [selectedColumnIds]);
   const filteredChannels = useMemo(() => {
     const query = channelSearch.trim().toLowerCase();
     if (!query) return channels;
@@ -43,8 +58,9 @@ export function TargetAchievementReportDownload({
       query.set("endDate", endDate);
     }
     for (const channelId of selectedChannelIds) query.append("channel", channelId);
+    for (const columnId of selectedColumnIds) query.append("column", columnId);
     return `/api/reports/monthly?${query.toString()}`;
-  }, [endDate, month, periodMode, selectedChannelIds, startDate]);
+  }, [endDate, month, periodMode, selectedChannelIds, selectedColumnIds, startDate]);
   const monthBounds = getMonthBounds(month);
   const isInvalidDateRange =
     periodMode === "custom" &&
@@ -67,6 +83,9 @@ export function TargetAchievementReportDownload({
             setMonth(nextMonth);
             setStartDate(bounds.startDate);
             setEndDate(bounds.endDate);
+            setSelectedColumnIds(
+              getTargetAchievementColumns(canViewRevenue, nextMonth).map((column) => column.id)
+            );
           }}
           className="h-11 rounded-md border bg-background px-3 text-sm font-semibold text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
         />
@@ -104,63 +123,80 @@ export function TargetAchievementReportDownload({
         ) : null}
       </div>
 
-      <div className="rounded-md border bg-background/80 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-bold">Channels</span>
-          <span className="text-xs font-semibold text-muted-foreground">
-            {selectedChannelIds.length}/{channels.length} selected
-          </span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            className={buttonVariants({ variant: "secondary", size: "sm", className: "rounded-md" })}
-            type="button"
-            onClick={() => setSelectedChannelIds(channels.map((channel) => channel.channelId))}
-          >
-            Select all
-          </button>
-          <button
-            className={buttonVariants({ variant: "ghost", size: "sm", className: "rounded-md" })}
-            type="button"
-            onClick={() => setSelectedChannelIds([])}
-          >
-            Clear
-          </button>
-        </div>
-        <label className="relative mt-3 block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={channelSearch}
-            onChange={(event) => setChannelSearch(event.target.value)}
-            placeholder="Search channels"
-            className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm font-semibold outline-none ring-offset-background focus:ring-2 focus:ring-ring"
-          />
-        </label>
-        <div className="mt-3 max-h-72 overflow-auto rounded-md border">
-          {filteredChannels.map((channel) => (
-            <label
-              className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-muted/50"
-              key={channel.channelId}
-            >
-              <input
-                className="size-4 accent-primary"
-                type="checkbox"
-                checked={selectedChannelSet.has(channel.channelId)}
-                onChange={() => {
-                  setSelectedChannelIds((current) =>
-                    current.includes(channel.channelId)
-                      ? current.filter((channelId) => channelId !== channel.channelId)
-                      : [...current, channel.channelId]
-                  );
-                }}
-              />
-              <span className="font-semibold text-foreground">{channel.title}</span>
-            </label>
-          ))}
-          {filteredChannels.length === 0 ? (
-            <div className="px-3 py-6 text-center text-sm text-muted-foreground">No channels found.</div>
-          ) : null}
-        </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
+        <SelectorPanel
+          title="Channels"
+          count={selectedChannelIds.length}
+          total={channels.length}
+          onSelectAll={() => setSelectedChannelIds(channels.map((channel) => channel.channelId))}
+          onClear={() => setSelectedChannelIds([])}
+        >
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={channelSearch}
+              onChange={(event) => setChannelSearch(event.target.value)}
+              placeholder="Search channels"
+              className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm font-semibold outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="max-h-72 overflow-auto rounded-md border">
+            {filteredChannels.map((channel) => (
+              <label
+                className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-muted/50"
+                key={channel.channelId}
+              >
+                <input
+                  className="size-4 accent-primary"
+                  type="checkbox"
+                  checked={selectedChannelSet.has(channel.channelId)}
+                  onChange={() => {
+                    setSelectedChannelIds((current) =>
+                      current.includes(channel.channelId)
+                        ? current.filter((channelId) => channelId !== channel.channelId)
+                        : [...current, channel.channelId]
+                    );
+                  }}
+                />
+                <span className="font-semibold text-foreground">{channel.title}</span>
+              </label>
+            ))}
+            {filteredChannels.length === 0 ? (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">No channels found.</div>
+            ) : null}
+          </div>
+        </SelectorPanel>
+
+        <SelectorPanel
+          title="Report Columns"
+          count={selectedColumnIds.length}
+          total={availableColumns.length}
+          onSelectAll={() => setSelectedColumnIds(availableColumns.map((column) => column.id))}
+          onClear={() => setSelectedColumnIds([])}
+        >
+          <div className="max-h-80 overflow-auto rounded-md border">
+            {availableColumns.map((column) => (
+              <label
+                className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm font-semibold last:border-b-0 hover:bg-muted/50"
+                key={column.id}
+              >
+                <input
+                  className="size-4 accent-primary"
+                  type="checkbox"
+                  checked={selectedColumnSet.has(column.id)}
+                  onChange={() => {
+                    setSelectedColumnIds((current) =>
+                      current.includes(column.id)
+                        ? current.filter((columnId) => columnId !== column.id)
+                        : [...current, column.id]
+                    );
+                  }}
+                />
+                {column.label}
+              </label>
+            ))}
+          </div>
+        </SelectorPanel>
       </div>
 
       <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -169,7 +205,12 @@ export function TargetAchievementReportDownload({
           <div className="text-muted-foreground">
             Achievement: {periodMode === "custom" ? `${startDate || "Start date"} to ${endDate || "End date"}` : "Entire month"}
           </div>
-          <div className="text-muted-foreground">{selectedChannelIds.length} channels selected</div>
+          <div className="text-muted-foreground">
+            {selectedChannelIds.length} channels selected · {selectedColumnIds.length} columns selected
+          </div>
+          {selectedColumnIds.length === 0 ? (
+            <div className="text-xs font-semibold text-muted-foreground">Select at least one report column.</div>
+          ) : null}
           {isInvalidDateRange ? (
             <div className="text-xs font-semibold text-destructive">
               Select a valid period within {month} only.
@@ -177,11 +218,70 @@ export function TargetAchievementReportDownload({
           ) : null}
         </div>
         <ReportDownloadButton
-          disabled={!schemaReady || !month || isInvalidDateRange || selectedChannelIds.length === 0}
+          disabled={
+            !schemaReady ||
+            !month ||
+            isInvalidDateRange ||
+            selectedChannelIds.length === 0 ||
+            selectedColumnIds.length === 0
+          }
           href={downloadHref}
           idleLabel="Download Target vs Achievement Excel"
           loadingLabel="Preparing target report..."
         />
+      </div>
+    </div>
+  );
+}
+
+function SelectorPanel({
+  title,
+  count,
+  total,
+  onSelectAll,
+  onClear,
+  children
+}: {
+  title: string;
+  count: number;
+  total: number;
+  onSelectAll: () => void;
+  onClear: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-md border bg-background/80 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-sm font-bold">
+          {count === total ? (
+            <CheckSquare className="size-4 text-primary" />
+          ) : (
+            <Square className="size-4 text-muted-foreground" />
+          )}
+          {title}
+        </span>
+        <span className="text-xs font-semibold text-muted-foreground">
+          {count}/{total} selected
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            className={buttonVariants({ variant: "secondary", size: "sm", className: "rounded-md" })}
+            type="button"
+            onClick={onSelectAll}
+          >
+            Select all
+          </button>
+          <button
+            className={buttonVariants({ variant: "ghost", size: "sm", className: "rounded-md" })}
+            type="button"
+            onClick={onClear}
+          >
+            Clear
+          </button>
+        </div>
+        {children}
       </div>
     </div>
   );
