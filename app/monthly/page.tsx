@@ -257,10 +257,10 @@ export default async function YoutubePerformancePage({ searchParams }: YoutubePe
                     icon={DollarSign}
                     trend={dashboard.growth.revenue}
                   />
-                ) : (
-                  <LongShortViewsCard rows={dashboard.longShortSplit} compact />
-                )}
+                ) : null}
               </section>
+
+              {!canViewRevenue ? <LongShortViewsCard rows={dashboard.longShortSplit} compact /> : null}
 
               {hasMonthlyTargets && monthlyTargetData ? (
                 <TargetProgressCard
@@ -472,11 +472,11 @@ function LongShortViewsCard({
   compact?: boolean;
 }) {
   const body = (
-    <div className={compact ? "space-y-2.5" : "space-y-3"}>
+    <div className={compact ? "grid gap-x-8 gap-y-4 md:grid-cols-2" : "space-y-3"}>
       {rows.length > 0 ? (
         rows.map((item) => (
           <div key={item.contentType} className="space-y-1">
-            <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 text-sm">
               <span className="min-w-0 font-semibold capitalize">{contentTypeLabel(item.contentType)}</span>
               <span className="whitespace-nowrap text-right tabular-nums">
                 {formatCompactNumber(item.views)} public · {formatCompactNumber(item.engagedViews)} engaged
