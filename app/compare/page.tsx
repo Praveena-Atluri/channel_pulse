@@ -548,7 +548,7 @@ function ChannelMetricBlock({
           <span className="truncate text-sm font-black">{label}</span>
         </div>
         <span className="grid justify-items-end gap-0.5">
-          <span className="text-[10px] font-black uppercase text-muted-foreground">R2-R1</span>
+          <span className="text-[10px] font-black uppercase text-muted-foreground">R1-R2</span>
           <span className={`whitespace-nowrap text-xs font-black tabular-nums ${getSignedMetricClass(delta)}`}>
             {deltaFormatter(delta)}
           </span>
@@ -713,18 +713,18 @@ function ChannelBreakdownTable({
               <th className="px-3 py-2 text-left">Channel</th>
               <th className="px-3 py-2 text-right">Range 1 Engaged Views</th>
               <th className="px-3 py-2 text-right">Range 2 Engaged Views</th>
-              <th className="px-3 py-2 text-right">R2-R1 Engaged Views</th>
+              <th className="px-3 py-2 text-right">R1-R2 Engaged Views</th>
               <th className="px-3 py-2 text-right">Range 1 Watch Hrs</th>
               <th className="px-3 py-2 text-right">Range 2 Watch Hrs</th>
-              <th className="px-3 py-2 text-right">R2-R1 Watch Hrs</th>
+              <th className="px-3 py-2 text-right">R1-R2 Watch Hrs</th>
               <th className="px-3 py-2 text-right">Range 1 Subs</th>
               <th className="px-3 py-2 text-right">Range 2 Subs</th>
-              <th className="px-3 py-2 text-right">R2-R1 Subs</th>
+              <th className="px-3 py-2 text-right">R1-R2 Subs</th>
               {canViewRevenue ? (
                 <>
                   <th className="px-3 py-2 text-right">Range 1 Revenue</th>
                   <th className="px-3 py-2 text-right">Range 2 Revenue</th>
-                  <th className="px-3 py-2 text-right">R2-R1 Revenue</th>
+                  <th className="px-3 py-2 text-right">R1-R2 Revenue</th>
                 </>
               ) : null}
             </tr>
@@ -881,7 +881,7 @@ function ComparisonMetricCard({
         <div className="mt-4 grid gap-2">
           <ComparisonValueRow label="Range 1" value={rangeOneValue} />
           <ComparisonValueRow label="Range 2" value={rangeTwoValue} />
-          <ComparisonValueRow label="R2-R1" value={deltaLabel} emphasized tone={isPositive ? "positive" : "negative"} />
+          <ComparisonValueRow label="R1-R2" value={deltaLabel} emphasized tone={isPositive ? "positive" : "negative"} />
         </div>
       </CardContent>
     </Card>
@@ -932,43 +932,43 @@ function ComparisonTotalsCard({ primary, comparison }: { primary: MetricTotals; 
       label: "Estimated revenue",
       primary: formatCurrency(primary.estimatedRevenue),
       comparison: formatCurrency(comparison.estimatedRevenue),
-      difference: formatSignedCurrency(comparison.estimatedRevenue - primary.estimatedRevenue),
-      differenceValue: comparison.estimatedRevenue - primary.estimatedRevenue
+      difference: formatSignedCurrency(primary.estimatedRevenue - comparison.estimatedRevenue),
+      differenceValue: primary.estimatedRevenue - comparison.estimatedRevenue
     },
     {
       label: "Estimated ad revenue",
       primary: formatCurrency(primary.estimatedAdRevenue),
       comparison: formatCurrency(comparison.estimatedAdRevenue),
-      difference: formatSignedCurrency(comparison.estimatedAdRevenue - primary.estimatedAdRevenue),
-      differenceValue: comparison.estimatedAdRevenue - primary.estimatedAdRevenue
+      difference: formatSignedCurrency(primary.estimatedAdRevenue - comparison.estimatedAdRevenue),
+      differenceValue: primary.estimatedAdRevenue - comparison.estimatedAdRevenue
     },
     {
       label: "Gross revenue",
       primary: formatCurrency(primary.grossRevenue),
       comparison: formatCurrency(comparison.grossRevenue),
-      difference: formatSignedCurrency(comparison.grossRevenue - primary.grossRevenue),
-      differenceValue: comparison.grossRevenue - primary.grossRevenue
+      difference: formatSignedCurrency(primary.grossRevenue - comparison.grossRevenue),
+      differenceValue: primary.grossRevenue - comparison.grossRevenue
     },
     {
       label: "Monetized playbacks",
       primary: formatCompactNumber(primary.monetizedPlaybacks),
       comparison: formatCompactNumber(comparison.monetizedPlaybacks),
-      difference: formatSignedCompactNumber(comparison.monetizedPlaybacks - primary.monetizedPlaybacks),
-      differenceValue: comparison.monetizedPlaybacks - primary.monetizedPlaybacks
+      difference: formatSignedCompactNumber(primary.monetizedPlaybacks - comparison.monetizedPlaybacks),
+      differenceValue: primary.monetizedPlaybacks - comparison.monetizedPlaybacks
     },
     {
       label: "Ad impressions",
       primary: formatCompactNumber(primary.adImpressions),
       comparison: formatCompactNumber(comparison.adImpressions),
-      difference: formatSignedCompactNumber(comparison.adImpressions - primary.adImpressions),
-      differenceValue: comparison.adImpressions - primary.adImpressions
+      difference: formatSignedCompactNumber(primary.adImpressions - comparison.adImpressions),
+      differenceValue: primary.adImpressions - comparison.adImpressions
     },
     {
       label: "Playback CPM",
       primary: formatCurrency(calculatePlaybackCpm(primary)),
       comparison: formatCurrency(calculatePlaybackCpm(comparison)),
-      difference: formatSignedCurrency(calculatePlaybackCpm(comparison) - calculatePlaybackCpm(primary)),
-      differenceValue: calculatePlaybackCpm(comparison) - calculatePlaybackCpm(primary)
+      difference: formatSignedCurrency(calculatePlaybackCpm(primary) - calculatePlaybackCpm(comparison)),
+      differenceValue: calculatePlaybackCpm(primary) - calculatePlaybackCpm(comparison)
     }
   ];
 
@@ -985,7 +985,7 @@ function ComparisonTotalsCard({ primary, comparison }: { primary: MetricTotals; 
           <span>Metric</span>
           <span className="text-right">Range 1</span>
           <span className="text-right">Range 2</span>
-          <span className="text-right">R2-R1</span>
+          <span className="text-right">R1-R2</span>
         </div>
         {rows.map((row) => (
           <div

@@ -1080,7 +1080,7 @@ function getChannelCompareHeaders(columnId: ChannelCompareColumnId) {
 }
 
 function compareHeaders(label: string, includePercent = false) {
-  const headers = [`Range 1 ${label}`, `Range 2 ${label}`, `${label} R2-R1`];
+  const headers = [`Range 1 ${label}`, `Range 2 ${label}`, `${label} R1-R2`];
   if (includePercent) {
     headers.push(`${label} % Change`);
   }
@@ -1105,15 +1105,15 @@ function compareCells(
 ) {
   const current = options.rounded ? round(primaryValue) : primaryValue;
   const previous = options.rounded ? round(comparisonValue) : comparisonValue;
-  const difference = options.rounded ? round(comparisonValue - primaryValue) : comparisonValue - primaryValue;
+  const difference = options.rounded ? round(primaryValue - comparisonValue) : primaryValue - comparisonValue;
   const cells: Array<{ label: string; value: string | number }> = [
     { label: `Range 1 ${label}`, value: current },
     { label: `Range 2 ${label}`, value: previous },
-    { label: `${label} R2-R1`, value: difference }
+    { label: `${label} R1-R2`, value: difference }
   ];
 
   if (options.includePercent) {
-    cells.push({ label: `${label} % Change`, value: round(calculatePercentChange(comparisonValue, primaryValue)) });
+    cells.push({ label: `${label} % Change`, value: round(calculatePercentChange(primaryValue, comparisonValue)) });
   }
 
   return cells;

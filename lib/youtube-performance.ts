@@ -1379,10 +1379,10 @@ function buildContentTypeComparison(
         contentType,
         primaryEngagedViews: primary.engagedViews,
         comparisonEngagedViews: comparison.engagedViews,
-        engagedViewsDelta: comparison.engagedViews - primary.engagedViews,
+        engagedViewsDelta: primary.engagedViews - comparison.engagedViews,
         primaryRevenue: primary.estimatedRevenue,
         comparisonRevenue: comparison.estimatedRevenue,
-        revenueDelta: comparison.estimatedRevenue - primary.estimatedRevenue
+        revenueDelta: primary.estimatedRevenue - comparison.estimatedRevenue
       };
     })
     .filter((row) =>
@@ -1438,8 +1438,8 @@ function buildComparisonDelta(current: number, previous: number): ComparisonDelt
   return {
     current,
     previous,
-    absolute: previous - current,
-    percent: safePercentChange(previous, current)
+    absolute: current - previous,
+    percent: safePercentChange(current, previous)
   };
 }
 
