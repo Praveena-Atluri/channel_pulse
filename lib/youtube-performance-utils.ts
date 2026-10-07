@@ -91,6 +91,19 @@ export function getDefaultReportMonth(now = new Date()) {
   return formatMonth(previousMonth);
 }
 
+export function getDefaultComparisonRanges(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit"
+  }).formatToParts(now);
+  const currentMonth = `${parts.find((part) => part.type === "year")!.value}-${parts.find((part) => part.type === "month")!.value}`;
+  const latestMonth = getPreviousMonth(currentMonth);
+  const inclusiveRange = (month: string) => {
+    const [year, monthNumber] = parseMonth(month);
+    return { startDate: `${month}-01`, endDate: formatDate(new Date(Date.UTC(year, monthNumber, 0))) };
+  };
+  return { primary: inclusiveRange(latestMonth), comparison: inclusiveRange(getPreviousMonth(latestMonth)) };
+}
+
 export function getCurrentReportMonth(now = new Date()) {
   return formatMonth(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
 }

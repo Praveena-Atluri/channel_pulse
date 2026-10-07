@@ -164,6 +164,9 @@ export default async function YoutubeComparisonPage({ searchParams }: YoutubeCom
                 {formatRangeLabel(dashboard.comparison.startDate, dashboard.comparison.endDate)}
               </p>
               <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                Changes show Range 1 − Range 2, with percentage change relative to Range 2.
+              </p>
+              <p className="mt-1 text-xs font-semibold text-muted-foreground">
                 {channelLabel} | {contentTypeLabel(dashboard.filters.contentType)}
               </p>
               <p className="mt-1 text-xs font-semibold text-muted-foreground">

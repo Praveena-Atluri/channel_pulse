@@ -8,6 +8,7 @@ import {
   classifyVideoContentType,
   comparisonUsesDifferentPublicViewMethodologies,
   getCurrentReportMonth,
+  getDefaultComparisonRanges,
   getMonthDateRange,
   getPreviousMonth,
   getVideoCohort,
@@ -32,6 +33,21 @@ test("builds calendar month reporting ranges", () => {
     analyticsEndDate: "2026-05-31"
   });
   assert.equal(getPreviousMonth("2026-01"), "2025-12");
+});
+
+test("comparison defaults put the latest completed month in Range 1 and the previous month in Range 2", () => {
+  assert.deepEqual(getDefaultComparisonRanges(new Date("2026-10-07T00:00:00Z")), {
+    primary: { startDate: "2026-09-01", endDate: "2026-09-30" },
+    comparison: { startDate: "2026-08-01", endDate: "2026-08-31" }
+  });
+  assert.deepEqual(getDefaultComparisonRanges(new Date("2026-01-07T00:00:00Z")), {
+    primary: { startDate: "2025-12-01", endDate: "2025-12-31" },
+    comparison: { startDate: "2025-11-01", endDate: "2025-11-30" }
+  });
+  assert.deepEqual(getDefaultComparisonRanges(new Date("2026-09-30T19:00:00Z")), {
+    primary: { startDate: "2026-09-01", endDate: "2026-09-30" },
+    comparison: { startDate: "2026-08-01", endDate: "2026-08-31" }
+  });
 });
 
 test("builds current month reporting ranges through yesterday", () => {

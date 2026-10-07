@@ -13,6 +13,7 @@ import {
   comparisonUsesDifferentPublicViewMethodologies,
   createEmptyTotals,
   getCurrentReportMonth,
+  getDefaultComparisonRanges,
   getDefaultReportMonth,
   getMonthDateRange,
   getPreviousMonth,
@@ -282,20 +283,17 @@ export function normalizeYoutubeComparisonFilters(input: {
   comparisonStartDate?: string;
   comparisonEndDate?: string;
 }): YoutubeComparisonFilters {
-  const defaultMonth = getDefaultReportMonth();
-  const defaultPreviousMonth = getPreviousMonth(defaultMonth);
-  const primaryDefaultRange = getInclusiveMonthDateRange(defaultPreviousMonth);
-  const comparisonDefaultRange = getInclusiveMonthDateRange(defaultMonth);
+  const defaults = getDefaultComparisonRanges();
 
   const primary = normalizeInclusiveDateRange({
     startDate: input.primaryStartDate,
     endDate: input.primaryEndDate,
-    fallback: primaryDefaultRange
+    fallback: defaults.primary
   });
   const comparison = normalizeInclusiveDateRange({
     startDate: input.comparisonStartDate,
     endDate: input.comparisonEndDate,
-    fallback: comparisonDefaultRange
+    fallback: defaults.comparison
   });
 
   return {
@@ -1500,14 +1498,6 @@ function hasVideoPerformanceMetrics(row: VideoPerformanceRow) {
 
 function buildAvailableMonths(latestMonth: string) {
   return buildAvailableReportMonths(latestMonth);
-}
-
-function getInclusiveMonthDateRange(month: string) {
-  const range = getMonthDateRange(month);
-  return {
-    startDate: range.startDate,
-    endDate: addDays(range.endDate, -1)
-  };
 }
 
 function normalizeInclusiveDateRange(input: {
