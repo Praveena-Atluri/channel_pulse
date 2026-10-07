@@ -10,7 +10,8 @@ import {
   GitCompareArrows,
   LoaderCircle,
   RefreshCcw,
-  Target
+  Target,
+  TrendingUp
 } from "lucide-react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -24,6 +25,13 @@ const dashboardLinks = [
     title: "Monthly Dashboard",
     description: "Views, watch time, subscribers, long vs short split, and video rankings.",
     Icon: CalendarDays,
+    adminOnly: false
+  },
+  {
+    href: "/monthly-growth",
+    title: "Monthly Growth",
+    description: "Track monthly growth and loss for selected channels and metrics, with Excel downloads.",
+    Icon: TrendingUp,
     adminOnly: false
   },
   {

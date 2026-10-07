@@ -1,7 +1,13 @@
 export type XlsxCellValue = string | number;
+export type XlsxMergedHeader = { row: number; firstColumn: number; lastColumn: number };
+export type XlsxHeaderRowStyle = "section" | "month" | "columns";
 
 type XlsxWorkbookOptions = {
   columnWidth?: number;
+  autoFilter?: boolean;
+  headerRowNumbers?: number[];
+  mergedHeaders?: XlsxMergedHeader[];
+  headerRowStyles?: Record<number, XlsxHeaderRowStyle>;
   rows: XlsxCellValue[][];
   sheetName?: string;
 };
@@ -9,6 +15,8 @@ type XlsxWorkbookOptions = {
 const DEFAULT_COLUMN_WIDTH = 16.86;
 const WRAPPED_CELL_STYLE = 1;
 const HEADER_CELL_STYLE = 2;
+const CENTERED_HEADER_STYLE = 3;
+const COLORED_HEADER_STYLES = { section: 4, month: 5, columns: 6 };
 const ZIP_UTF8_FLAG = 0x0800;
 const ZIP_STORE_METHOD = 0;
 const ZIP_VERSION = 20;
@@ -19,6 +27,10 @@ const UTF8_ENCODER = new TextEncoder();
 
 export function buildXlsxWorkbook({
   columnWidth = DEFAULT_COLUMN_WIDTH,
+  autoFilter = true,
+  headerRowNumbers = [1],
+  mergedHeaders = [],
+  headerRowStyles = {},
   rows,
   sheetName = "Report"
 }: XlsxWorkbookOptions) {
@@ -36,7 +48,7 @@ export function buildXlsxWorkbook({
     { path: "xl/styles.xml", data: buildStylesXml() },
     {
       path: "xl/worksheets/sheet1.xml",
-      data: buildWorksheetXml(normalizedRows, maxColumnCount, columnWidth)
+      data: buildWorksheetXml(normalizedRows, maxColumnCount, columnWidth, autoFilter, headerRowNumbers, mergedHeaders, headerRowStyles)
     }
   ]);
 }
@@ -124,13 +136,17 @@ function buildWorkbookRelationshipsXml() {
 function buildStylesXml() {
   return xmlDocument(`\
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="2">
+  <fonts count="3">
     <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
     <font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="13"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
   </fonts>
-  <fills count="2">
+  <fills count="5">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF17365D"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD9EAF7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFEDF3F8"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="1">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -138,10 +154,14 @@ function buildStylesXml() {
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="3">
+  <cellXfs count="7">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -151,14 +171,22 @@ function buildStylesXml() {
 </styleSheet>`);
 }
 
-function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, columnWidth: number) {
+function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, columnWidth: number, includeAutoFilter: boolean, headerRowNumbers: number[], mergedHeaders: XlsxMergedHeader[], headerRowStyles: Record<number, XlsxHeaderRowStyle>) {
   const lastCellReference = `${columnName(maxColumnCount)}${rows.length}`;
   const cols = Array.from({ length: maxColumnCount }, (_, index) => {
     const columnNumber = index + 1;
     return `<col min="${columnNumber}" max="${columnNumber}" width="${columnWidth}" customWidth="1"/>`;
   }).join("");
-  const rowXml = rows.map((row, index) => buildRowXml(row, index + 1, columnWidth)).join("");
-  const autoFilter = rows.length > 1 ? `<autoFilter ref="A1:${lastCellReference}"/>` : "";
+  const headers = new Set(headerRowNumbers);
+  const rowXml = rows.map((row, index) => {
+    const rowStyle = headerRowStyles[index + 1];
+    const styledRow = rowStyle ? Array.from({ length: maxColumnCount }, (_, column) => row[column] ?? "") : row;
+    return buildRowXml(styledRow, index + 1, columnWidth, headers.has(index + 1), mergedHeaders.filter((header) => header.row === index + 1), rowStyle);
+  }).join("");
+  const autoFilter = includeAutoFilter && rows.length > 1 ? `<autoFilter ref="A1:${lastCellReference}"/>` : "";
+  const merges = mergedHeaders.length === 0 ? "" : `<mergeCells count="${mergedHeaders.length}">${mergedHeaders.map((header) =>
+    `<mergeCell ref="${columnName(header.firstColumn)}${header.row}:${columnName(header.lastColumn)}${header.row}"/>`
+  ).join("")}</mergeCells>`;
 
   return xmlDocument(`\
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
@@ -173,20 +201,26 @@ function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, colu
   <cols>${cols}</cols>
   <sheetData>${rowXml}</sheetData>
   ${autoFilter}
+  ${merges}
 </worksheet>`);
 }
 
-function buildRowXml(row: XlsxCellValue[], rowNumber: number, columnWidth: number) {
-  const height = estimateRowHeight(row, columnWidth);
+function buildRowXml(row: XlsxCellValue[], rowNumber: number, columnWidth: number, isHeader: boolean, mergedHeaders: XlsxMergedHeader[], rowStyle?: XlsxHeaderRowStyle) {
+  const mergedColumns = new Map(mergedHeaders.map((header) => [header.firstColumn, header]));
+  const height = Math.max(
+    rowStyle === "section" ? 28 : rowStyle ? 24 : 0,
+    estimateRowHeight(row.map((value, index) => mergedColumns.has(index + 1) ? "" : value), columnWidth) ?? 0,
+    ...mergedHeaders.map((header) => estimateRowHeight([row[header.firstColumn - 1] ?? ""], columnWidth * (header.lastColumn - header.firstColumn + 1)) ?? 0)
+  );
   const heightAttribute = height ? ` ht="${height}" customHeight="1"` : "";
-  const cells = row.map((value, columnIndex) => buildCellXml(value, columnIndex + 1, rowNumber)).join("");
+  const cells = row.map((value, columnIndex) => buildCellXml(value, columnIndex + 1, rowNumber, isHeader, mergedColumns.has(columnIndex + 1), rowStyle)).join("");
 
   return `<row r="${rowNumber}"${heightAttribute}>${cells}</row>`;
 }
 
-function buildCellXml(value: XlsxCellValue, columnNumber: number, rowNumber: number) {
+function buildCellXml(value: XlsxCellValue, columnNumber: number, rowNumber: number, isHeader: boolean, isMergedHeader: boolean, rowStyle?: XlsxHeaderRowStyle) {
   const cellReference = `${columnName(columnNumber)}${rowNumber}`;
-  const style = rowNumber === 1 ? HEADER_CELL_STYLE : WRAPPED_CELL_STYLE;
+  const style = rowStyle ? COLORED_HEADER_STYLES[rowStyle] : isMergedHeader ? CENTERED_HEADER_STYLE : isHeader ? HEADER_CELL_STYLE : WRAPPED_CELL_STYLE;
 
   if (typeof value === "number" && Number.isFinite(value)) {
     return `<c r="${cellReference}" s="${style}"><v>${value}</v></c>`;

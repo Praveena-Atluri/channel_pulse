@@ -49,6 +49,14 @@ npm run dev
 
 Open `/` for the dashboard hub. The monthly dashboard lives at `/monthly`, and the comparison dashboard lives at `/compare`.
 
+### Monthly growth
+
+Open **Monthly Growth** from Home or visit `/monthly-growth`. Select a start/end month, one or more channels, and the metrics to display. Filters update automatically. The combined charts include only selected channels, followed by an individual section for each selected channel. Months run horizontally; each metric has its own scale, total, numeric change, and growth/loss badge.
+
+Every selected month compares with its previous calendar month, including the first month. For an April–September range, April compares with March; March is used only for comparison and is not displayed or exported as a separate month. Current-month totals are labeled month to date through the latest stored day and compared with the full previous month. Missing days are flagged, and comparisons requiring incomplete data are unavailable. Percentages are unavailable for zero or negative previous values; numeric changes remain visible when coverage is complete.
+
+**Download Excel** exports the loaded selection as an `.xlsx` workbook with horizontal month columns and Total, Change, and Change (%) subcolumns for the combined and individual channel sections. Channel access and revenue visibility follow the logged-in account's permissions. Ranges support 1–36 months, including the current month, with no future months.
+
 ## Syncing Data
 
 Use the channel refresh button in the dashboard to pull the CMS-managed channel catalog, select one channel, then sync the month or date range you want to report on.

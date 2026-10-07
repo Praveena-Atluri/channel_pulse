@@ -32,6 +32,8 @@ export const config = {
   matcher: [
     "/",
     "/monthly/:path*",
+    "/monthly-growth/:path*",
+    "/api/monthly-growth/:path*",
     "/compare/:path*",
     "/reports/:path*",
     "/manual-refresh/:path*",
