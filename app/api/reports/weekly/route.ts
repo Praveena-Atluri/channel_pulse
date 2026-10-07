@@ -12,7 +12,7 @@ import {
   getWeeklyPerformanceDashboard
 } from "@/lib/weekly-performance";
 import { resolveWeeklyRequest } from "@/lib/weekly-request";
-import { buildXlsxWorkbook } from "@/lib/xlsx-export";
+import { buildStyledReportWorkbook } from "@/lib/xlsx-export";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +36,9 @@ export async function GET(request: NextRequest) {
     await ensureWeeklyPerformanceData({ ...resolved, requireRevenue: canViewRevenue });
     const dashboard = await getWeeklyPerformanceDashboard(resolved);
     const rows = buildWeeklyReportRows(dashboard, { includeRevenue: canViewRevenue });
-    const workbook = buildXlsxWorkbook({
+    const workbook = buildStyledReportWorkbook({
+      title: "Weekly Performance",
+      headerRowIndex: 3,
       columnWidth: 22,
       rows,
       sheetName: "Weekly Performance"

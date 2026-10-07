@@ -54,7 +54,7 @@ import {
   type MetricTotals,
   type VideoContentType
 } from "@/lib/youtube-performance-utils";
-import { buildXlsxWorkbook, type XlsxCellValue } from "@/lib/xlsx-export";
+import { buildStyledReportWorkbook, groupAdjacentReportColumns, type XlsxCellValue, type XlsxColumnGroup } from "@/lib/xlsx-export";
 
 export const dynamic = "force-dynamic";
 
@@ -151,7 +151,10 @@ export async function GET(request: NextRequest) {
     dashboard.filters.contentType
   ].join("-");
 
-  return buildWorkbookResponse(rows, filename, reportSheetName(report));
+  return buildWorkbookResponse(rows, filename, reportSheetName(report), undefined, {
+    title: `${channelTitle} — ${reportSheetName(report)} (${dashboard.selectedMonth})`,
+    sectionColumn: report === "videos" ? 0 : undefined
+  });
 }
 
 async function buildTargetAchievementResponse(request: NextRequest, account: ChannelPulseAccount) {
@@ -247,7 +250,7 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
         ? achievementStartDate && achievementEndDate
           ? `Channel (achievement: ${achievementStartDate} to ${achievementEndDate})`
           : `Channel (achievement: entire ${month})`
-        : column.label
+        : column.kind === "target" ? "Target" : column.kind === "achievement" ? "Achievement" : "Achievement (%)"
     )
   ];
 
@@ -265,7 +268,11 @@ async function buildTargetAchievementResponse(request: NextRequest, account: Cha
         : month,
       `${selectedChannels.length}-channels`
     ].join("-"),
-    "Target vs Achievement"
+    "Target vs Achievement",
+    undefined,
+    { columnGroups: groupAdjacentReportColumns(selectedColumns.map((column) =>
+      column.kind === "channel" ? "Channel" : column.label.replace(/ (target|achievement|%)$/, "")
+    )) }
   );
 }
 
@@ -423,7 +430,11 @@ async function buildChannelCompareResponse(request: NextRequest, account: Channe
     result.rows,
     filename,
     "Compare Summary",
-    result.isPartial ? PARTIAL_DATA_WARNING : undefined
+    result.isPartial ? PARTIAL_DATA_WARNING : undefined,
+    { columnGroups: selectedColumnIds.map((id) => ({
+      label: CHANNEL_COMPARE_COLUMNS.find((column) => column.id === id)!.label,
+      width: getChannelCompareHeaders(id).length
+    })) }
   );
 }
 
@@ -1079,10 +1090,10 @@ function getChannelCompareHeaders(columnId: ChannelCompareColumnId) {
   }
 }
 
-function compareHeaders(label: string, includePercent = false) {
-  const headers = [`Range 1 ${label}`, `Range 2 ${label}`, `${label} R1-R2`];
+function compareHeaders(_label: string, includePercent = false) {
+  const headers = ["Range 1", "Range 2", "Change (R1−R2)"];
   if (includePercent) {
-    headers.push(`${label} % Change`);
+    headers.push("Change (%)");
   }
 
   return headers;
@@ -1271,9 +1282,12 @@ function buildWorkbookResponse(
   rows: XlsxCellValue[][],
   filename: string,
   sheetName: string,
-  warning?: string
+  warning?: string,
+  layout: { title?: string; columnGroups?: XlsxColumnGroup[]; sectionColumn?: number } = {}
 ) {
-  const workbook = buildXlsxWorkbook({
+  const workbook = buildStyledReportWorkbook({
+    ...layout,
+    title: layout.title ?? sheetName,
     columnWidth: REPORT_COLUMN_WIDTH,
     rows,
     sheetName

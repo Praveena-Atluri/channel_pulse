@@ -93,6 +93,7 @@ export function YoutubeVideoTable({
                   label={null}
                   rows={downloadRows}
                   sheetName="Videos"
+                  reportTitle={title}
                 />
                 {remainingCount > 0 ? (
                   <Button

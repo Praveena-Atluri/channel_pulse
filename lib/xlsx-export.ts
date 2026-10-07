@@ -1,6 +1,7 @@
 export type XlsxCellValue = string | number;
 export type XlsxMergedHeader = { row: number; firstColumn: number; lastColumn: number };
 export type XlsxHeaderRowStyle = "section" | "month" | "columns";
+export type XlsxColumnGroup = { label: string; width: number };
 
 type XlsxWorkbookOptions = {
   columnWidth?: number;
@@ -8,6 +9,9 @@ type XlsxWorkbookOptions = {
   headerRowNumbers?: number[];
   mergedHeaders?: XlsxMergedHeader[];
   headerRowStyles?: Record<number, XlsxHeaderRowStyle>;
+  highlightedCells?: Array<{ row: number; column: number }>;
+  frozenRows?: number;
+  autoFilterHeaderRow?: number;
   rows: XlsxCellValue[][];
   sheetName?: string;
 };
@@ -31,6 +35,9 @@ export function buildXlsxWorkbook({
   headerRowNumbers = [1],
   mergedHeaders = [],
   headerRowStyles = {},
+  highlightedCells = [],
+  frozenRows = 1,
+  autoFilterHeaderRow = 1,
   rows,
   sheetName = "Report"
 }: XlsxWorkbookOptions) {
@@ -48,9 +55,74 @@ export function buildXlsxWorkbook({
     { path: "xl/styles.xml", data: buildStylesXml() },
     {
       path: "xl/worksheets/sheet1.xml",
-      data: buildWorksheetXml(normalizedRows, maxColumnCount, columnWidth, autoFilter, headerRowNumbers, mergedHeaders, headerRowStyles)
+      data: buildWorksheetXml(normalizedRows, maxColumnCount, columnWidth, autoFilter, headerRowNumbers, mergedHeaders, headerRowStyles, highlightedCells, frozenRows, autoFilterHeaderRow)
     }
   ]);
+}
+
+// A shared presentation layer: all source data rows retain their values and column order.
+export function buildStyledReportWorkbook({
+  rows: sourceRows, title, columnGroups = [], headerRowIndex = 0, sectionColumn,
+  columnWidth, sheetName = title
+}: {
+  rows: XlsxCellValue[][];
+  title: string;
+  columnGroups?: XlsxColumnGroup[];
+  headerRowIndex?: number;
+  sectionColumn?: number;
+  columnWidth?: number;
+  sheetName?: string;
+}) {
+  const columns = sourceRows[headerRowIndex] ?? ["Report"];
+  const width = Math.max(1, columns.length, ...sourceRows.map((row) => row.length));
+  if (columnGroups.length && columnGroups.reduce((sum, group) => sum + group.width, 0) !== columns.length) {
+    throw new Error("Report column groups must match the selected columns.");
+  }
+  const rows: XlsxCellValue[][] = [[title], ...sourceRows.slice(0, headerRowIndex)];
+  const headerRowStyles: Record<number, XlsxHeaderRowStyle> = { 1: "section" };
+  const mergedHeaders: XlsxMergedHeader[] = width > 1 ? [{ row: 1, firstColumn: 1, lastColumn: width }] : [];
+  const highlightedCells: Array<{ row: number; column: number }> = [];
+  if (columnGroups.length) {
+    rows.push(columnGroups.flatMap((group) => [group.label, ...Array<string>(group.width - 1).fill("")]));
+    headerRowStyles[rows.length] = "month";
+    let firstColumn = 1;
+    for (const group of columnGroups) {
+      if (group.width > 1) mergedHeaders.push({ row: rows.length, firstColumn, lastColumn: firstColumn + group.width - 1 });
+      firstColumn += group.width;
+    }
+  }
+  rows.push(columns);
+  const headerRow = rows.length;
+  headerRowStyles[headerRow] = columnGroups.length ? "columns" : "month";
+  const channelColumns = columns.flatMap((label, index) => /^channel(?: title|\s*\(.*\))?$/i.test(String(label)) ? [index + 1] : []);
+  let section: XlsxCellValue | undefined;
+  for (const row of sourceRows.slice(headerRowIndex + 1)) {
+    const nextSection = sectionColumn === undefined ? undefined : row[sectionColumn];
+    if (nextSection !== undefined && nextSection !== "" && nextSection !== section) {
+      rows.push([nextSection]);
+      headerRowStyles[rows.length] = "section";
+      if (width > 1) mergedHeaders.push({ row: rows.length, firstColumn: 1, lastColumn: width });
+      section = nextSection;
+    }
+    rows.push(row);
+    for (const column of channelColumns) {
+      if (row[column - 1] !== undefined && row[column - 1] !== "") highlightedCells.push({ row: rows.length, column });
+    }
+  }
+  return buildXlsxWorkbook({
+    rows, sheetName, columnWidth, headerRowStyles, mergedHeaders, highlightedCells,
+    headerRowNumbers: Object.keys(headerRowStyles).map(Number), frozenRows: headerRow,
+    autoFilterHeaderRow: headerRow, autoFilter: sectionColumn === undefined
+  });
+}
+
+export function groupAdjacentReportColumns(labels: string[]): XlsxColumnGroup[] {
+  return labels.reduce<XlsxColumnGroup[]>((groups, label) => {
+    const previous = groups[groups.length - 1];
+    if (previous?.label === label) previous.width += 1;
+    else groups.push({ label, width: 1 });
+    return groups;
+  }, []);
 }
 
 function buildContentTypesXml() {
@@ -154,7 +226,7 @@ function buildStylesXml() {
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="7">
+  <cellXfs count="8">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
@@ -162,6 +234,7 @@ function buildStylesXml() {
     <xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="1" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -171,19 +244,20 @@ function buildStylesXml() {
 </styleSheet>`);
 }
 
-function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, columnWidth: number, includeAutoFilter: boolean, headerRowNumbers: number[], mergedHeaders: XlsxMergedHeader[], headerRowStyles: Record<number, XlsxHeaderRowStyle>) {
+function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, columnWidth: number, includeAutoFilter: boolean, headerRowNumbers: number[], mergedHeaders: XlsxMergedHeader[], headerRowStyles: Record<number, XlsxHeaderRowStyle>, highlightedCells: Array<{ row: number; column: number }>, frozenRows: number, autoFilterHeaderRow: number) {
   const lastCellReference = `${columnName(maxColumnCount)}${rows.length}`;
   const cols = Array.from({ length: maxColumnCount }, (_, index) => {
     const columnNumber = index + 1;
     return `<col min="${columnNumber}" max="${columnNumber}" width="${columnWidth}" customWidth="1"/>`;
   }).join("");
   const headers = new Set(headerRowNumbers);
+  const highlighted = new Set(highlightedCells.map((cell) => `${cell.row}:${cell.column}`));
   const rowXml = rows.map((row, index) => {
     const rowStyle = headerRowStyles[index + 1];
     const styledRow = rowStyle ? Array.from({ length: maxColumnCount }, (_, column) => row[column] ?? "") : row;
-    return buildRowXml(styledRow, index + 1, columnWidth, headers.has(index + 1), mergedHeaders.filter((header) => header.row === index + 1), rowStyle);
+    return buildRowXml(styledRow, index + 1, columnWidth, headers.has(index + 1), mergedHeaders.filter((header) => header.row === index + 1), rowStyle, highlighted);
   }).join("");
-  const autoFilter = includeAutoFilter && rows.length > 1 ? `<autoFilter ref="A1:${lastCellReference}"/>` : "";
+  const autoFilter = includeAutoFilter && rows.length > autoFilterHeaderRow ? `<autoFilter ref="A${autoFilterHeaderRow}:${lastCellReference}"/>` : "";
   const merges = mergedHeaders.length === 0 ? "" : `<mergeCells count="${mergedHeaders.length}">${mergedHeaders.map((header) =>
     `<mergeCell ref="${columnName(header.firstColumn)}${header.row}:${columnName(header.lastColumn)}${header.row}"/>`
   ).join("")}</mergeCells>`;
@@ -193,7 +267,7 @@ function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, colu
   <dimension ref="A1:${lastCellReference}"/>
   <sheetViews>
     <sheetView workbookViewId="0">
-      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+      <pane ySplit="${frozenRows}" topLeftCell="A${frozenRows + 1}" activePane="bottomLeft" state="frozen"/>
       <selection pane="bottomLeft"/>
     </sheetView>
   </sheetViews>
@@ -205,7 +279,7 @@ function buildWorksheetXml(rows: XlsxCellValue[][], maxColumnCount: number, colu
 </worksheet>`);
 }
 
-function buildRowXml(row: XlsxCellValue[], rowNumber: number, columnWidth: number, isHeader: boolean, mergedHeaders: XlsxMergedHeader[], rowStyle?: XlsxHeaderRowStyle) {
+function buildRowXml(row: XlsxCellValue[], rowNumber: number, columnWidth: number, isHeader: boolean, mergedHeaders: XlsxMergedHeader[], rowStyle: XlsxHeaderRowStyle | undefined, highlighted: Set<string>) {
   const mergedColumns = new Map(mergedHeaders.map((header) => [header.firstColumn, header]));
   const height = Math.max(
     rowStyle === "section" ? 28 : rowStyle ? 24 : 0,
@@ -213,14 +287,14 @@ function buildRowXml(row: XlsxCellValue[], rowNumber: number, columnWidth: numbe
     ...mergedHeaders.map((header) => estimateRowHeight([row[header.firstColumn - 1] ?? ""], columnWidth * (header.lastColumn - header.firstColumn + 1)) ?? 0)
   );
   const heightAttribute = height ? ` ht="${height}" customHeight="1"` : "";
-  const cells = row.map((value, columnIndex) => buildCellXml(value, columnIndex + 1, rowNumber, isHeader, mergedColumns.has(columnIndex + 1), rowStyle)).join("");
+  const cells = row.map((value, columnIndex) => buildCellXml(value, columnIndex + 1, rowNumber, isHeader, mergedColumns.has(columnIndex + 1), rowStyle, highlighted.has(`${rowNumber}:${columnIndex + 1}`))).join("");
 
   return `<row r="${rowNumber}"${heightAttribute}>${cells}</row>`;
 }
 
-function buildCellXml(value: XlsxCellValue, columnNumber: number, rowNumber: number, isHeader: boolean, isMergedHeader: boolean, rowStyle?: XlsxHeaderRowStyle) {
+function buildCellXml(value: XlsxCellValue, columnNumber: number, rowNumber: number, isHeader: boolean, isMergedHeader: boolean, rowStyle: XlsxHeaderRowStyle | undefined, highlighted: boolean) {
   const cellReference = `${columnName(columnNumber)}${rowNumber}`;
-  const style = rowStyle ? COLORED_HEADER_STYLES[rowStyle] : isMergedHeader ? CENTERED_HEADER_STYLE : isHeader ? HEADER_CELL_STYLE : WRAPPED_CELL_STYLE;
+  const style = rowStyle ? COLORED_HEADER_STYLES[rowStyle] : isMergedHeader ? CENTERED_HEADER_STYLE : isHeader ? HEADER_CELL_STYLE : highlighted ? 7 : WRAPPED_CELL_STYLE;
 
   if (typeof value === "number" && Number.isFinite(value)) {
     return `<c r="${cellReference}" s="${style}"><v>${value}</v></c>`;

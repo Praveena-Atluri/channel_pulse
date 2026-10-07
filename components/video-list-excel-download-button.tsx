@@ -3,7 +3,7 @@
 import { Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { buildXlsxWorkbook, type XlsxCellValue } from "@/lib/xlsx-export";
+import { buildStyledReportWorkbook, type XlsxCellValue } from "@/lib/xlsx-export";
 
 type VideoListExcelDownloadButtonProps = {
   ariaLabel?: string;
@@ -13,6 +13,7 @@ type VideoListExcelDownloadButtonProps = {
   label?: string | null;
   rows: XlsxCellValue[][];
   sheetName?: string;
+  reportTitle?: string;
 };
 
 const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -24,7 +25,8 @@ export function VideoListExcelDownloadButton({
   iconOnly = false,
   label = "Download Excel",
   rows,
-  sheetName = "Videos"
+  sheetName = "Videos",
+  reportTitle = sheetName
 }: VideoListExcelDownloadButtonProps) {
   const accessibleLabel = ariaLabel ?? label ?? "Download Excel";
   const className = iconOnly
@@ -37,7 +39,8 @@ export function VideoListExcelDownloadButton({
       className={className}
       disabled={disabled}
       onClick={() => {
-        const workbook = buildXlsxWorkbook({
+        const workbook = buildStyledReportWorkbook({
+          title: reportTitle,
           columnWidth: 24,
           rows,
           sheetName
