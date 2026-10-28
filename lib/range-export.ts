@@ -1,3 +1,4 @@
+import { sumRecentRangeMetrics } from "@/lib/range-recent-metrics";
 import type { RangeDashboardData, RangeMetricValues } from "@/lib/range-dashboard";
 
 export type RangeMonthlyExportRow = RangeMetricValues & {
@@ -45,6 +46,7 @@ export function buildRangeMonthlyRows(data: RangeDashboardData): RangeMonthlyExp
         periodEnd: monthEnd < data.endDate ? monthEnd : data.endDate,
         periodStart: monthStart > data.startDate ? monthStart : data.startDate,
         ...values,
+        ...sumRecentRangeMetrics(series.points.filter((point) => point.day.slice(0, 7) === month), data.totals.estimatedRevenue !== null),
         engagementRate:
           values.engagedViews === null ? null : calculateEngagementRate(values.engagedViews, values.views)
       };
@@ -65,7 +67,10 @@ export function buildRangeMonthlyCsv(data: RangeDashboardData) {
     "Engagement Rate (%)",
     "Watch Hours",
     "Net Subscribers",
-    ...(includeRevenue ? ["Estimated Revenue (USD)"] : [])
+    ...(includeRevenue ? ["Estimated Revenue (USD)"] : []),
+    "Last Two Months Videos Views",
+    "Last Two Months Videos Watch Hours",
+    ...(includeRevenue ? ["Last Two Months Videos Revenue (USD)"] : [])
   ];
   const rows = buildRangeMonthlyRows(data).map((row) => [
     row.channelTitle,
@@ -78,7 +83,10 @@ export function buildRangeMonthlyCsv(data: RangeDashboardData) {
     row.engagementRate === null ? "Unavailable" : formatCsvNumber(row.engagementRate),
     formatCsvNumber(row.watchHours),
     formatCsvNumber(row.netSubscribers),
-    ...(includeRevenue ? [formatCsvNumber(row.estimatedRevenue ?? 0)] : [])
+    ...(includeRevenue ? [formatCsvNumber(row.estimatedRevenue ?? 0)] : []),
+    row.recentViews == null ? "Unavailable" : formatCsvNumber(row.recentViews),
+    row.recentWatchHours == null ? "Unavailable" : formatCsvNumber(row.recentWatchHours),
+    ...(includeRevenue ? [row.recentRevenue == null ? "Unavailable" : formatCsvNumber(row.recentRevenue)] : [])
   ]);
 
   return `\uFEFF${[headers, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\r\n")}\r\n`;

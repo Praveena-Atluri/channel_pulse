@@ -1,8 +1,13 @@
+import { DAILY_STATUS_RESULTS_TABLE, validRecentVideoCache, type RecentVideoCacheRow } from "@/lib/daily-status-cache";
+import { sumRecentRangeMetrics } from "@/lib/range-recent-metrics";
 import { createDatabaseAdminClient } from "@/lib/database";
 import type { StoredYoutubeManagedChannel } from "@/lib/youtube-managed-channels";
 import { calculateEngagementRate, rangeUsesMixedPublicViewMethodology } from "@/lib/youtube-performance-utils";
 
 export type RangeMetricValues = {
+  recentViews?: number | null;
+  recentWatchHours?: number | null;
+  recentRevenue?: number | null;
   estimatedRevenue: number | null;
   netSubscribers: number;
   views: number;
@@ -25,6 +30,7 @@ export type RangeDashboardData = {
   coverage: { firstDay: string | null; lastDay: string | null };
   endDate: string;
   generatedAt: string;
+  recentUpdatedAt?: string | null;
   series: RangeChannelSeries[];
   startDate: string;
   totals: RangeMetricValues;
@@ -56,13 +62,27 @@ export async function getRangeDashboardData({
   endDate: string;
   startDate: string;
 }): Promise<RangeDashboardData> {
-  const rows = await getMetricRows(channels.map((channel) => channel.channelId), startDate, endDate);
+  const channelIds = channels.map((channel) => channel.channelId);
+  const [rows, recentRows] = await Promise.all([getMetricRows(channelIds, startDate, endDate), getRecentRows(channelIds, startDate, endDate)]);
+  const recentByDay = new Map(recentRows.filter((row) => validRecentVideoCache(row, row.channel_id, row.day)).map((row) => [`${row.channel_id}:${row.day}`, row]));
   const rowsByChannel = new Map(channels.map((channel) => [channel.channelId, [] as MetricRow[]]));
 
   for (const row of rows) rowsByChannel.get(row.channel_id)?.push(row);
 
   const series = channels.map((channel) => {
-    const points = (rowsByChannel.get(channel.channelId) ?? []).map((row) => toPoint(row, canViewRevenue));
+    const dailyRows = new Map((rowsByChannel.get(channel.channelId) ?? []).map((row) => [row.day, row]));
+    const points: RangeDailyPoint[] = [];
+    for (let time = Date.parse(`${startDate}T00:00:00Z`); time <= Date.parse(`${endDate}T00:00:00Z`); time += 86_400_000) {
+      const day = new Date(time).toISOString().slice(0, 10);
+      const row = dailyRows.get(day);
+      const recent = recentByDay.get(`${channel.channelId}:${day}`);
+      points.push({
+        ...(row ? toPoint(row, canViewRevenue) : { day, estimatedRevenue: canViewRevenue ? 0 : null, netSubscribers: 0, views: 0, engagedViews: null, engagementRate: null, watchHours: 0 }),
+        recentViews: recent?.views ?? null,
+        recentWatchHours: recent?.watch_hours ?? null,
+        recentRevenue: canViewRevenue ? recent?.estimated_revenue ?? null : null
+      });
+    }
     return {
       channel: {
         channelId: channel.channelId,
@@ -82,6 +102,7 @@ export async function getRangeDashboardData({
     },
     endDate,
     generatedAt: new Date().toISOString(),
+    recentUpdatedAt: recentRows.map((row) => row.fetched_at).filter(Boolean).sort()[0] ?? null,
     engagedViewsAvailable: rows.some((row) => row.engaged_views !== null && row.engaged_views !== undefined),
     publicViewMethodologyWarning: rangeUsesMixedPublicViewMethodology(startDate, endDate),
     series,
@@ -151,10 +172,27 @@ function sumValues(values: RangeMetricValues[], canViewRevenue: boolean): RangeM
     { estimatedRevenue: canViewRevenue ? 0 : null, netSubscribers: 0, views: 0, engagedViews: null, engagementRate: null, watchHours: 0 }
   );
   totals.engagementRate = totals.engagedViews === null ? null : calculateEngagementRate(totals.engagedViews, totals.views);
-  return totals;
+  return { ...totals, ...sumRecentRangeMetrics(values, canViewRevenue) };
 }
 
 function toNumber(value: number | string | null | undefined) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+async function getRecentRows(channelIds: string[], startDate: string, endDate: string): Promise<RecentVideoCacheRow[]> {
+  if (!channelIds.length) return [];
+  const db = createDatabaseAdminClient();
+  const rows: RecentVideoCacheRow[] = [];
+  for (let offset = 0; ; offset += DB_PAGE_SIZE) {
+    const { data, error } = await db.from(DAILY_STATUS_RESULTS_TABLE)
+      .select("channel_id,day,publication_start_date,publication_end_date,algorithm_version,views,watch_hours,video_count,fetched_at,estimated_revenue")
+      .in("channel_id", channelIds).gte("day", startDate).lte("day", endDate)
+      .order("channel_id", { ascending: true }).order("day", { ascending: true })
+      .range(offset, offset + DB_PAGE_SIZE - 1);
+    // The recent-video cache may not have been initialized yet. Keep all-video analytics usable.
+    if (error) return [];
+    rows.push(...((data ?? []) as RecentVideoCacheRow[]));
+    if (!data || data.length < DB_PAGE_SIZE) return rows;
+  }
 }

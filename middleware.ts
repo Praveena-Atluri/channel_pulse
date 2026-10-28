@@ -33,6 +33,8 @@ export const config = {
     "/",
     "/monthly/:path*",
     "/monthly-growth/:path*",
+    "/daily-status/:path*",
+    "/api/daily-status/:path*",
     "/api/monthly-growth/:path*",
     "/compare/:path*",
     "/reports/:path*",

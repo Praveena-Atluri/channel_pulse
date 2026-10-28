@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRangeMonthlyCsv, buildRangeMonthlyRows } from "../lib/range-export.ts";
+import { registerHooks } from "node:module";
+registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier.startsWith("@/")) return nextResolve(new URL(`../${specifier.slice(2)}.ts`, import.meta.url).href, context);
+  return nextResolve(specifier, context);
+} });
+const { buildRangeMonthlyCsv, buildRangeMonthlyRows } = await import("../lib/range-export.ts");
 import type { RangeDashboardData } from "../lib/range-dashboard.ts";
 
 const data: RangeDashboardData = {
@@ -58,5 +63,18 @@ test("buildRangeMonthlyCsv omits revenue for accounts that cannot view it", () =
   const csv = buildRangeMonthlyCsv(restrictedData);
 
   assert.doesNotMatch(csv, /Revenue/);
-  assert.match(csv, /Net Subscribers\r\n/);
+  assert.match(csv, /Net Subscribers,Last Two Months Videos Views,Last Two Months Videos Watch Hours\r\n/);
+});
+
+test("recent video exports aggregate months and preserve unavailable revenue", () => {
+  const recentData = { ...data, series: data.series.map((series) => ({ ...series,
+    points: series.points.map((point, index) => ({ ...point, recentViews: 10, recentWatchHours: 0.5, recentRevenue: index === 0 ? null : 2 }))
+  })) };
+  const rows = buildRangeMonthlyRows(recentData);
+  assert.equal(rows[0].recentViews, 20);
+  assert.equal(rows[0].recentWatchHours, 1);
+  assert.equal(rows[0].recentRevenue, null);
+  assert.equal(rows[1].recentViews, null);
+  assert.equal(rows[2].recentRevenue, 2);
+  assert.match(buildRangeMonthlyCsv(recentData), /Last Two Months Videos Revenue \(USD\)/);
 });

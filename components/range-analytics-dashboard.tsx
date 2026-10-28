@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RangeChannelSeries, RangeDashboardData, RangeMetricValues } from "@/lib/range-dashboard";
+import { recentMetricCoverage, type RecentRangeMetrics } from "@/lib/range-recent-metrics";
 import { buildRangeMonthlyCsv } from "@/lib/range-export";
 import type { StoredYoutubeManagedChannel } from "@/lib/youtube-managed-channels";
 
@@ -16,10 +17,13 @@ type Props = {
   defaultStartDate: string;
 };
 
-type MetricKey = keyof Pick<RangeMetricValues, "estimatedRevenue" | "netSubscribers" | "views" | "engagedViews" | "watchHours">;
+type MetricKey = keyof Pick<RangeMetricValues, "estimatedRevenue" | "netSubscribers" | "views" | "engagedViews" | "watchHours" | "recentViews" | "recentWatchHours" | "recentRevenue">;
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#ca8a04", "#db2777", "#4f46e5", "#059669", "#7c3aed", "#be123c"];
 const METRICS: Array<{ metricKey: MetricKey; label: string; formatter: (value: number) => string }> = [
+  { metricKey: "recentViews", label: "Last Two Months Videos — daily views", formatter: formatCompact },
+  { metricKey: "recentWatchHours", label: "Last Two Months Videos — daily watch hours", formatter: formatCompact },
+  { metricKey: "recentRevenue", label: "Last Two Months Videos — daily revenue", formatter: formatCurrency },
   { metricKey: "views", label: "Daily public views", formatter: formatCompact },
   { metricKey: "engagedViews", label: "Daily engaged views", formatter: formatCompact },
   { metricKey: "watchHours", label: "Daily watch hours", formatter: formatCompact },
@@ -57,13 +61,14 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
       const response = await fetch(`/api/range-dashboard?${params}`, { cache: "no-store", signal: controller.signal });
       const payload = (await response.json()) as RangeDashboardData & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to load range analytics.");
+      controller.signal.throwIfAborted();
       setData(payload);
+
     } catch (loadError) {
       if (loadError instanceof DOMException && loadError.name === "AbortError") return;
       setError(loadError instanceof Error ? loadError.message : "Unable to load range analytics.");
     } finally {
-      if (requestRef.current === controller) requestRef.current = null;
-      setLoading(false);
+      if (requestRef.current === controller) { requestRef.current = null; setLoading(false); }
     }
   };
 
@@ -74,12 +79,19 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleChannel = (channelId: string) => {
-    setSelectedIds((ids) => ids.includes(channelId) ? ids.filter((id) => id !== channelId) : [...ids, channelId]);
+  const clearData = () => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setLoading(false);
     setData(null);
   };
 
-  const metrics = (canViewRevenue ? METRICS : METRICS.filter((metric) => metric.metricKey !== "estimatedRevenue"))
+  const toggleChannel = (channelId: string) => {
+    setSelectedIds((ids) => ids.includes(channelId) ? ids.filter((id) => id !== channelId) : [...ids, channelId]);
+    clearData();
+  };
+
+  const metrics = (canViewRevenue ? METRICS : METRICS.filter((metric) => metric.metricKey !== "estimatedRevenue" && metric.metricKey !== "recentRevenue"))
     .filter((metric) => metric.metricKey !== "engagedViews" || data?.engagedViewsAvailable !== false);
 
   return (
@@ -92,8 +104,8 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-            <DateField label="Start date" value={startDate} onChange={(value) => { setStartDate(value); setData(null); }} />
-            <DateField label="End date" value={endDate} onChange={(value) => { setEndDate(value); setData(null); }} />
+            <DateField label="Start date" value={startDate} onChange={(value) => { setStartDate(value); clearData(); }} />
+            <DateField label="End date" value={endDate} onChange={(value) => { setEndDate(value); clearData(); }} />
             <Button className="h-10" disabled={loading || invalidRange || selectedIds.length === 0} onClick={() => void load()}>
               {loading ? <LoaderCircle className="size-4 animate-spin" /> : <BarChart3 className="size-4" />}
               Generate graphs
@@ -107,9 +119,9 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
                 <p className="text-xs font-semibold text-muted-foreground">Choose one or more channels to overlay on every graph.</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds(channels.map((channel) => channel.channelId)); setData(null); }}>Select all</Button>
-                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds(channels.filter((channel) => /^KidsOne/i.test(channel.title)).map((channel) => channel.channelId)); setData(null); }}>Kids channels</Button>
-                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds([]); setData(null); }}>Clear</Button>
+                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds(channels.map((channel) => channel.channelId)); clearData(); }}>Select all</Button>
+                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds(channels.filter((channel) => /^KidsOne/i.test(channel.title)).map((channel) => channel.channelId)); clearData(); }}>Kids channels</Button>
+                <Button size="sm" variant="secondary" onClick={() => { setSelectedIds([]); clearData(); }}>Clear</Button>
               </div>
             </div>
             <label className="relative mt-3 block">
@@ -167,6 +179,20 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
             {canViewRevenue ? <SummaryCard label="Estimated revenue" value={formatCurrency(data.totals.estimatedRevenue ?? 0)} /> : null}
           </section>
 
+          <section className="grid gap-3" aria-labelledby="recent-range-heading">
+            <div>
+              <h2 id="recent-range-heading" className="text-lg font-black">Last Two Months Videos</h2>
+              <p className="text-sm text-muted-foreground">For each reporting day, includes videos published in the preceding two months through that day (India time). Metrics are summed over the selected date range.</p>
+              <p className="text-xs text-muted-foreground">Reads saved data only. A background job updates the database; generating graphs does not call YouTube. Cards show partial sums with coverage until all selected days and channels are available. CSV totals remain unavailable for incomplete periods; revenue may arrive later.</p>
+            </div>
+            <p className="text-xs text-muted-foreground">{data.recentUpdatedAt ? `Saved data last updated: ${new Date(data.recentUpdatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST (oldest saved result).` : "No saved recent-video results for this range yet."}</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <RecentSummaryCard label="Views" points={data.series.flatMap((series) => series.points)} metric="recentViews" formatter={formatCompact} loading={loading} />
+              <RecentSummaryCard label="Watch time (hours)" points={data.series.flatMap((series) => series.points)} metric="recentWatchHours" formatter={formatCompact} loading={loading} />
+              {canViewRevenue && <RecentSummaryCard label="Estimated revenue" points={data.series.flatMap((series) => series.points)} metric="recentRevenue" formatter={formatCurrency} loading={loading} />}
+            </div>
+          </section>
+
           <Card className="shadow-sm">
             <CardContent className="flex flex-wrap items-center justify-between gap-2 p-4 text-xs font-semibold text-muted-foreground">
               <span>Requested: {formatDate(data.startDate)} – {formatDate(data.endDate)}</span>
@@ -200,6 +226,11 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
                       {formatDate(data.startDate)} – {formatDate(data.endDate)}
                     </span>
                   </div>
+                  <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                    <RecentSummaryCard label="Last Two Months Videos — views" points={series.points} metric="recentViews" formatter={formatCompact} loading={loading} />
+                    <RecentSummaryCard label="Last Two Months Videos — watch hours" points={series.points} metric="recentWatchHours" formatter={formatCompact} loading={loading} />
+                    {canViewRevenue && <RecentSummaryCard label="Last Two Months Videos — revenue" points={series.points} metric="recentRevenue" formatter={formatCurrency} loading={loading} />}
+                  </div>
                   <div className="grid gap-4 xl:grid-cols-2">
                     {metrics.map((metric) => (
                       <MultiSeriesChart
@@ -217,9 +248,39 @@ export function RangeAnalyticsDashboard({ canViewRevenue, channels, defaultEndDa
           <Card className="shadow-sm">
             <CardHeader><CardTitle className="text-base">Channel totals for selected range</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full min-w-[44rem] text-sm">
-                <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="px-3 py-2">Channel</th><th className="px-3 py-2 text-right">Public views</th><th className="px-3 py-2 text-right">Engaged views</th><th className="px-3 py-2 text-right">Engagement</th><th className="px-3 py-2 text-right">Watch hours</th><th className="px-3 py-2 text-right">Net subscribers</th>{canViewRevenue ? <th className="px-3 py-2 text-right">Revenue</th> : null}</tr></thead>
-                <tbody>{data.series.map((item, index) => <tr className="border-b last:border-0" key={item.channel.channelId}><td className="px-3 py-3 font-bold"><span className="mr-2 inline-block size-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{item.channel.title}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.views)}</td><td className="px-3 py-3 text-right tabular-nums">{item.totals.engagedViews === null ? "Unavailable" : formatNumber(item.totals.engagedViews)}</td><td className="px-3 py-3 text-right tabular-nums">{item.totals.engagementRate === null ? "Unavailable" : `${item.totals.engagementRate.toFixed(1)}%`}</td><td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.watchHours)}</td><td className="px-3 py-3 text-right tabular-nums">{formatSigned(item.totals.netSubscribers)}</td>{canViewRevenue ? <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.totals.estimatedRevenue ?? 0)}</td> : null}</tr>)}</tbody>
+              <table className="w-full min-w-[76rem] text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2" rowSpan={2} scope="col">Channel</th>
+                    <th className="px-3 py-2 text-center" colSpan={canViewRevenue ? 6 : 5} scope="colgroup">All videos</th>
+                    <th className="border-l px-3 py-2 text-center" colSpan={canViewRevenue ? 3 : 2} scope="colgroup">Last Two Months Videos</th>
+                  </tr>
+                  <tr className="border-b text-right text-xs text-muted-foreground">
+                    <th className="px-3 py-2" scope="col">Public views</th>
+                    <th className="px-3 py-2" scope="col">Engaged views</th>
+                    <th className="px-3 py-2" scope="col">Engagement</th>
+                    <th className="px-3 py-2" scope="col">Watch hours</th>
+                    <th className="px-3 py-2" scope="col">Net subscribers</th>
+                    {canViewRevenue && <th className="px-3 py-2" scope="col">Revenue</th>}
+                    <th className="border-l px-3 py-2" scope="col">Views</th>
+                    <th className="px-3 py-2" scope="col">Watch hours</th>
+                    {canViewRevenue && <th className="px-3 py-2" scope="col">Revenue</th>}
+                  </tr>
+                </thead>
+                <tbody>{data.series.map((item, index) => (
+                  <tr className="border-b last:border-0" key={item.channel.channelId}>
+                    <th className="px-3 py-3 text-left font-bold" scope="row"><span className="mr-2 inline-block size-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />{item.channel.title}</th>
+                    <td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.views)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{item.totals.engagedViews === null ? "Unavailable" : formatNumber(item.totals.engagedViews)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{item.totals.engagementRate === null ? "Unavailable" : `${item.totals.engagementRate.toFixed(1)}%`}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{formatNumber(item.totals.watchHours)}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{formatSigned(item.totals.netSubscribers)}</td>
+                    {canViewRevenue && <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.totals.estimatedRevenue ?? 0)}</td>}
+                    <RecentTableCell points={item.points} metric="recentViews" formatter={formatNumber} loading={loading} divider />
+                    <RecentTableCell points={item.points} metric="recentWatchHours" formatter={formatNumber} loading={loading} />
+                    {canViewRevenue && <RecentTableCell points={item.points} metric="recentRevenue" formatter={formatCurrency} loading={loading} />}
+                  </tr>
+                ))}</tbody>
               </table>
             </CardContent>
           </Card>
@@ -248,8 +309,17 @@ function MultiSeriesChart({ data, formatter, metricKey, label }: { data: RangeDa
           <title>{label} by channel from {data.startDate} to {data.endDate}</title>
           {[0, 0.5, 1].map((ratio) => { const value = min + span * ratio; const lineY = y(value); return <g key={ratio}><line className="stroke-border" x1="42" x2="598" y1={lineY} y2={lineY} /><text className="fill-muted-foreground text-[10px]" x="4" y={lineY + 3}>{formatter(value)}</text></g>; })}
           {data.series.map((series, index) => {
-            const points = series.points.map((point) => `${x(point.day)},${y(Number(point[metricKey] ?? 0))}`).join(" ");
-            return <polyline fill="none" key={series.channel.channelId} points={points} stroke={COLORS[index % COLORS.length]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />;
+            let connected = false;
+            const path = series.points.map((point) => {
+              if (point[metricKey] == null) { connected = false; return ""; }
+              const command = connected ? "L" : "M";
+              connected = true;
+              return `${command}${x(point.day)},${y(Number(point[metricKey]))}`;
+            }).join(" ");
+            return <g key={series.channel.channelId}>
+              <path fill="none" d={path} stroke={COLORS[index % COLORS.length]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" />
+              {series.points.filter((point) => point[metricKey] != null).map((point) => <circle key={point.day} cx={x(point.day)} cy={y(Number(point[metricKey]))} r="2" fill={COLORS[index % COLORS.length]} />)}
+            </g>;
           })}
           <text className="fill-muted-foreground text-[10px]" x="42" y="198">{formatDate(data.startDate)}</text>
           <text className="fill-muted-foreground text-[10px]" textAnchor="end" x="598" y="198">{formatDate(data.endDate)}</text>
@@ -313,3 +383,30 @@ function formatNumber(value: number) { return new Intl.NumberFormat("en-US", { m
 function formatSigned(value: number) { return `${value > 0 ? "+" : ""}${formatNumber(value)}`; }
 function formatCurrency(value: number) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value); }
 function formatDate(value: string) { return new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)); }
+
+function formatOptional(value: number | null | undefined, formatter: (value: number) => string, loading = false) { return value == null ? (loading ? "Loading…" : "Unavailable") : formatter(value); }
+
+function RecentSummaryCard({ label, points, metric, formatter, loading }: {
+  label: string; points: RecentRangeMetrics[]; metric: keyof RecentRangeMetrics;
+  formatter: (value: number) => string; loading: boolean;
+}) {
+  const coverage = recentMetricCoverage(points, metric);
+  return <Card className="shadow-sm"><CardContent className="p-4">
+    <p className="text-xs font-semibold text-muted-foreground">{label}{coverage.value !== null && !coverage.complete ? " (partial)" : ""}</p>
+    <p className="mt-1 text-2xl font-black tabular-nums">{formatOptional(coverage.value, formatter, loading)}</p>
+    <p className="mt-1 text-xs text-muted-foreground">{coverage.available} of {coverage.total} channel-days available{!coverage.complete && loading ? " · Reading saved data…" : ""}</p>
+  </CardContent></Card>;
+}
+
+function RecentTableCell({ points, metric, formatter, loading, divider = false }: {
+  points: RecentRangeMetrics[]; metric: keyof RecentRangeMetrics;
+  formatter: (value: number) => string; loading: boolean; divider?: boolean;
+}) {
+  const coverage = recentMetricCoverage(points, metric);
+  return <td className={`px-3 py-3 text-right tabular-nums${divider ? " border-l" : ""}`}>
+    {formatOptional(coverage.value, formatter, loading)}
+    {!coverage.complete && <span className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">
+      {coverage.value !== null ? "Partial · " : ""}{coverage.available} of {coverage.total} days
+    </span>}
+  </td>;
+}

@@ -24,6 +24,8 @@ try {
   const schemaPath = join(ROOT_DIR, "database", "turso-channel-pulse-schema.sql");
   const schema = await readFile(schemaPath, "utf8");
   await turso.executeMultiple(schema);
+  const dailyStatusSchema = await readFile(join(ROOT_DIR, "database", "turso-daily-status-cache.sql"), "utf8");
+  await turso.executeMultiple(dailyStatusSchema);
   await ensureCompatibilityColumns();
   console.log("Turso schema applied.");
 } finally {

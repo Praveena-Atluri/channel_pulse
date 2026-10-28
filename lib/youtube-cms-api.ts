@@ -381,11 +381,13 @@ export async function fetchYouTubeChannels(
 
 export async function fetchYouTubeVideos(
   accessToken: string,
-  videoIds: string[]
+  videoIds: string[],
+  signal?: AbortSignal
 ): Promise<YouTubeVideoMetadata[]> {
   const videos: YouTubeVideoMetadata[] = [];
 
   for (const ids of chunk(videoIds, 50)) {
+    signal?.throwIfAborted();
     if (ids.length === 0) continue;
 
     const params = new URLSearchParams({
@@ -396,7 +398,7 @@ export async function fetchYouTubeVideos(
 
     const response = await fetch(`${YOUTUBE_DATA_API_BASE}/videos?${params}`, {
       headers: { authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS)]) : AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
       cache: "no-store"
     });
 
@@ -485,14 +487,19 @@ export async function fetchChannelVideosPublishedBetween(input: {
   channelId: string;
   startDate: string;
   endDate: string;
+  startDateTime?: string;
+  endDateTime?: string;
+  requireCompleteCatalog?: boolean;
+  signal?: AbortSignal;
 }): Promise<YouTubeVideoMetadata[]> {
   const uploadsPlaylistId = await fetchUploadsPlaylistId(input.accessToken, input.channelId);
   const videoIds: string[] = [];
   let pageToken: string | undefined;
-  const startTime = new Date(`${input.startDate}T00:00:00.000Z`).getTime();
-  const endTime = new Date(`${input.endDate}T00:00:00.000Z`).getTime();
+  const startTime = new Date(input.startDateTime ?? `${input.startDate}T00:00:00.000Z`).getTime();
+  const endTime = new Date(input.endDateTime ?? `${input.endDate}T00:00:00.000Z`).getTime();
 
   while (true) {
+    input.signal?.throwIfAborted();
     const params = new URLSearchParams({
       part: "snippet,contentDetails",
       playlistId: uploadsPlaylistId,
@@ -505,7 +512,7 @@ export async function fetchChannelVideosPublishedBetween(input: {
 
     const response = await fetch(`${YOUTUBE_DATA_API_BASE}/playlistItems?${params}`, {
       headers: { authorization: `Bearer ${input.accessToken}` },
-      signal: AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
+      signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS)]) : AbortSignal.timeout(GOOGLE_API_TIMEOUT_MS),
       cache: "no-store"
     });
 
@@ -533,7 +540,10 @@ export async function fetchChannelVideosPublishedBetween(input: {
       const publishedAt = item.contentDetails?.videoPublishedAt ?? item.snippet?.publishedAt;
       const publishedTime = publishedAt ? new Date(publishedAt).getTime() : Number.NaN;
 
-      if (!videoId || Number.isNaN(publishedTime)) continue;
+      if (!videoId || Number.isNaN(publishedTime)) {
+        if (input.requireCompleteCatalog) throw new Error("Upload catalog contains an unavailable publication date or video ID.");
+        continue;
+      }
       if (publishedTime < startTime) {
         reachedOlderVideos = true;
         continue;
@@ -543,14 +553,19 @@ export async function fetchChannelVideosPublishedBetween(input: {
       }
     }
 
-    if (!payload.nextPageToken || reachedOlderVideos) {
+    if (!payload.nextPageToken || (reachedOlderVideos && !input.requireCompleteCatalog)) {
       break;
     }
 
     pageToken = payload.nextPageToken;
   }
 
-  return fetchYouTubeVideos(input.accessToken, unique(videoIds));
+  const uniqueIds = unique(videoIds);
+  const videos = await fetchYouTubeVideos(input.accessToken, uniqueIds, input.signal);
+  if (input.requireCompleteCatalog && (videos.length !== uniqueIds.length || videos.some((video) => !video.publishedAt))) {
+    throw new Error("YouTube did not return the complete upload catalog.");
+  }
+  return videos;
 }
 
 async function fetchUploadsPlaylistId(accessToken: string, channelId: string) {

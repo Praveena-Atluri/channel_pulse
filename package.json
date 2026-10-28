@@ -11,6 +11,9 @@
     "start": "next start",
     "lint": "next lint",
     "db:schema:turso": "node --env-file=.env.local scripts/apply-turso-schema.mjs",
+    "db:schema:daily-status-cache": "node --env-file=.env.local scripts/apply-daily-status-cache.mjs",
+    "daily-status:refresh": "node --env-file=.env.local --experimental-transform-types scripts/daily-status-refresh.mjs --once",
+    "daily-status:worker": "node --env-file=.env.local --experimental-transform-types scripts/daily-status-refresh.mjs",
     "youtube:backfill": "node --env-file=.env.local scripts/backfill-youtube-analytics.cjs",
     "youtube:backfill-engaged": "node --env-file=.env.local scripts/backfill-youtube-analytics.cjs --months=13 --include-current",
     "test": "node --test --experimental-strip-types tests/*.test.ts"
@@ -24,7 +27,8 @@
     "next-themes": "^0.4.6",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "tailwind-merge": "3.3.0"
+    "tailwind-merge": "3.3.0",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/node": "22.15.17",

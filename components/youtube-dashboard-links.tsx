@@ -21,6 +21,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const dashboardLinks = [
   {
+    href: "/daily-status",
+    title: "Daily Status",
+    description: "Day-wise views, watch hours, subscribers, and recent-video performance for selected channels.",
+    Icon: CalendarDays,
+    adminOnly: false
+  },
+  {
     href: "/monthly",
     title: "Monthly Dashboard",
     description: "Views, watch time, subscribers, long vs short split, and video rankings.",
